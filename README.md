@@ -16,6 +16,23 @@ Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsave
 
 The Overview tab gives a single-page glanceable dashboard. The **Overclock** tab groups CPU frequency limits and AMDGPU DPM/overdrive sysfs. The CPU and GPU tabs focus on live sensors and charts, with pointers to Overclock for tuning details.
 
+## History viewer and disk logging
+
+The **Storage** tab in the app shows **live NVMe drive temperatures** from sysfs (one composite temp per drive). That is separate from **disk logging**, which only runs when you enable it in **Settings**.
+
+### Disk logging
+
+- **Default:** logging is **off**. Turn on **Log samples to disk** in **Settings** to append data.
+- **Format:** one JSON object per second per line (**JSON Lines**). Files are named **`linux-sensor-tray-YYYY-MM-DD.jsonl`** (older installs may emit **`monitor-*.jsonl`**).
+- **Where files go:** by default **`sensor_logs`** under Electron **user data** — on Linux that is usually **`~/.config/linux-sensor-tray/sensor_logs/`**. You can **Choose folder…** in Settings for a custom directory; **Use default** restores the path above.
+- **Schema:** current lines are **schema 3**: compact chart fields plus **`mem`**, **`cpu`**, **`cpuTuning`**, **`gpu`**, **`mainboard`**, and **`storage`** (same idea as in-app detail; very large AMDGPU sysfs blocks are omitted). Older logs may be **schema 2** and can include a legacy **`smu`** block. Expect about **one line per second** while logging is enabled — size grows with how long you leave it on.
+
+### `history-viewer.html`
+
+On startup the app writes **`history-viewer.html`** into the **default** log directory and, if different, your **custom** log directory — always next to the `.jsonl` files you care about.
+
+Open that file in a normal browser (from **Settings** use **Open in file manager**, then open the HTML file). It is **fully offline** (no web server): **drag and drop** `.jsonl` files onto the page (or use the file picker), view synced charts, and use **wheel zoom** and **drag-pan** on the plots. For scripting or spreadsheets, consume the same `.jsonl` files with **`jq`**, Python, or similar tools.
+
 ## Requirements
 
 - Linux with sysfs hwmon enabled (any modern distro)
@@ -100,7 +117,7 @@ Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version
 
 - If a value shows `—` it means the corresponding sysfs file isn't exposed by your kernel/driver/hardware. The app degrades gracefully.
 - The polling rate is 1 Hz. **Settings** tab: extend the in-memory ring buffer up to **7 days** (~~604k samples). **Chart time range** (what the sparklines show) is a **dropdown** in the top bar. Defaults are **6 h** buffer and **1 min** charts; settings are saved under Electron `userData` as `**linux-sensor-tray-settings.json`** (on first launch, `**monitor-settings.json**` under the old `~~/.config/monitor` path is imported automatically if present).
-- Optional **disk logging**: append one JSON object per second to `**linux-sensor-tray-YYYY-MM-DD.jsonl`** (legacy: `monitor-*.jsonl`) in a folder you choose (default: Electron `userData/sensor_logs`). Each line is **schema 3**: chart metrics (`t`, `cpuLoad`, temps, GPU power, …) plus `**mem`**, `**cpu**`, `**cpuTuning**`, `**gpu**`, `**mainboard**`, `**storage**` (same detail level as in-app; large AMDGPU sysfs blobs are omitted). Older logs may be **schema 2** and can include a legacy `**smu`** block. `**history-viewer.html**` is copied alongside for offline charts; use `jq` or scripts for the extended fields.
+- **Disk logging and offline charts:** see **[History viewer and disk logging](#history-viewer-and-disk-logging)** (`.jsonl` layout, folders, and **`history-viewer.html`**).
 - All sensor reads happen in the Electron main process; the renderer only receives a typed `SensorSnapshot` over IPC. The preload script is the only bridge (`contextIsolation: true`, `nodeIntegration: false`).
 - **AppImage / FUSE:** If the AppImage fails to run, install `fuse2` or `libfuse` (varies by distro) and try again.
 
