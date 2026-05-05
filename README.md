@@ -4,6 +4,8 @@ Tray-first Electron app for live CPU, GPU, mainboard, and storage stats on Linux
 
 Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray). Packaged builds use `**Linux Sensor Tray**` / `linux-sensor-tray` (`executableName`); GitHub release assets are named by electron-builder (typically `linux-sensor-tray-<version>-*.AppImage`). The install script saves the stable path `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage` and adds `~/.local/bin/linux-sensor-tray`.
 
+![Linux Sensor Tray — main window](docs/Screenshot.png)
+
 ## What it shows
 
 - **CPU**: total + per-core load and frequency, Tctl/Tdie, per-CCD temps, Vcore, V SoC, P Core, P SoC, I Core, I SoC
@@ -99,7 +101,7 @@ If the manifest lists our k10temp blacklist file, uninstall **asks whether to re
 
 ## Build a packaged app (maintainers)
 
-**Icon:** raster logo lives at **`build/icon.png`** (512×512 PNG). electron-builder uses it for Linux launcher/AppImage metadata via **`directories.buildResources`**, and the same file is shipped next to the app as **`icon.png`** (`extraResources`) so the window and tray load it at runtime. If that file is missing, the app falls back to a built-in teal icon.
+**Icon:** raster logo lives at `**build/icon.png`** (512×512 PNG). electron-builder uses it for Linux launcher/AppImage metadata via `**directories.buildResources**`, and the same file is shipped next to the app as `**icon.png**` (`extraResources`) so the window and tray load it at runtime. If that file is missing, the app falls back to a built-in teal icon.
 
 ```bash
 npm run build
@@ -122,4 +124,3 @@ Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version
 - **Disk logging and offline charts:** see **[History viewer and disk logging](#history-viewer-and-disk-logging)** (`.jsonl` layout, folders, and `**history-viewer.html`**).
 - All sensor reads happen in the Electron main process; the renderer only receives a typed `SensorSnapshot` over IPC. The preload script is the only bridge (`contextIsolation: true`, `nodeIntegration: false`).
 - **AppImage / FUSE:** If the AppImage fails to run, install `fuse2` or `libfuse` (varies by distro) and try again.
-
