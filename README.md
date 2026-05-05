@@ -2,7 +2,7 @@
 
 Tray-first Electron app for live CPU, GPU, mainboard, and storage stats on Linux (built and tested on CachyOS with a Ryzen 7 5700X + Radeon RX 9070 XT). It reads sensors from `/sys/class/hwmon` and `/proc` — no daemon and no `sudo` for normal use.
 
-Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray). Packaged builds use **`Linux Sensor Tray`** / `linux-sensor-tray` (`executableName`); GitHub release assets are named by electron-builder (typically `linux-sensor-tray-<version>-*.AppImage`). The install script saves the stable path `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage` and adds `~/.local/bin/linux-sensor-tray`.
+Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray). Packaged builds use `**Linux Sensor Tray**` / `linux-sensor-tray` (`executableName`); GitHub release assets are named by electron-builder (typically `linux-sensor-tray-<version>-*.AppImage`). The install script saves the stable path `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage` and adds `~/.local/bin/linux-sensor-tray`.
 
 ## What it shows
 
@@ -25,6 +25,16 @@ The Overview tab gives a single-page glanceable dashboard. The **Overclock** tab
   - `zenpower` (Zen 1–4) — exposes Vcore, V SoC, per-CCD temps, package power and current. Without it, the app falls back to `k10temp` and only Tctl/Tdie are reported. On Arch/CachyOS install `zenpower3-dkms` from the AUR.
   - `nct6687d` — required if your motherboard uses an NCT6687D super-IO chip and the kernel didn't autoload a driver. Other chips (NCT677x, IT87…) are auto-detected too.
   - The kernel's `amdgpu` driver is loaded automatically on AMD systems.
+
+### zenpower and k10temp
+
+`zenpower` and the in-kernel `k10temp` driver both use the same AMD CPU monitoring hardware on Zen systems. Only one of them can bind to it at a time, and **`k10temp` usually loads at boot and wins**, so `zenpower` may never appear until you change module loading.
+
+The running app **does not** change kernel modules; it looks for an hwmon device named `zenpower` first, then **falls back to `k10temp`** (Tctl/Tdie only, no extra voltages/power/per-CCD detail).
+
+The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt when stdin is a TTY, or pass **`--zenpower`**, or set **`LST_CONFIGURE_ZENPOWER=1`** / **`MONITOR_CONFIGURE_ZENPOWER=1`**). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
+
+To set this up yourself: unload `k10temp` (`sudo modprobe -r k10temp`), load `zenpower` (`sudo modprobe zenpower`), then make it persistent—typically **`blacklist k10temp`** in a file under `/etc/modprobe.d/` (see your distro and the [zenpower](https://github.com/ocerman/zenpower) install notes). **Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
 
 ## Run from source
 
@@ -54,7 +64,9 @@ curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/sc
 
 (`MONITOR_GH_REPO`, `MONITOR_INSTALL_DIR`, etc. still work as fallbacks during migration.)
 
-This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`, adds `~/.local/bin/linux-sensor-tray`, and registers **`linux-sensor-tray.desktop`**. **Do not move or rename** that AppImage path if you want **auto-updates** to keep working (the updater replaces that file in place).
+**Optional zenpower / k10temp:** append **`--zenpower`** to the install command (after `owner/repo` if you pass one), or set **`LST_CONFIGURE_ZENPOWER=1`**, to blacklist `k10temp` via sudo and try `modprobe zenpower`. Use **`--no-zenpower`** to force skipping when passing other flags. Piped/curl installs have no TTY and default to **no** unless you set the env var or pass **`bash -s -- --zenpower`**.
+
+This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`, adds `~/.local/bin/linux-sensor-tray`, and registers `**linux-sensor-tray.desktop**`. **Do not move or rename** that AppImage path if you want **auto-updates** to keep working (the updater replaces that file in place).
 
 **Uninstall:**
 
@@ -63,6 +75,8 @@ curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/sc
 ```
 
 Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still accepted). The script can prompt to remove `~/.config/linux-sensor-tray` and, if present, legacy `~/.config/monitor`.
+
+If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With **`--yes`**, that file is **left in place** unless you also set **`LST_UNINSTALL_REVERT_ZENPOWER=1`** (or **`MONITOR_UNINSTALL_REVERT_ZENPOWER=1`**).
 
 **Auto-updates:** the packaged app checks your GitHub repo’s latest release after startup (tray → **Check for updates…** also works). Set `LST_SKIP_AUTO_UPDATE=1` to disable (`MONITOR_SKIP_AUTO_UPDATE` still accepted). `GITHUB_TOKEN` on the install script is only needed for higher GitHub API rate limits (optional).
 
@@ -80,12 +94,13 @@ npm run dist
 
 Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version>-*.AppImage` (exact suffix depends on arch) and `latest-linux.yml`.
 
-**Publishing:** CI runs `scripts/apply-github-publish.mjs` (sets `owner` / `repo` / **`releaseType: release`** so GitHub gets a normal release, not a draft) then `npm run dist:publish`. That uploads AppImage, `latest-linux.yml`, etc., so **electron-updater** works. If nothing appears under **Releases**, check the workflow log for “skipped publishing” (often an existing release + electron-builder’s 2-hour guard — CI sets `EP_GH_IGNORE_TIME` to reduce that) and confirm **Settings → Actions → General → Workflow permissions** allows **Read and write** for `GITHUB_TOKEN`.
+**Publishing:** CI runs `scripts/apply-github-publish.mjs` (sets `owner` / `repo` / `**releaseType: release`** so GitHub gets a normal release, not a draft) then `npm run dist:publish`. That uploads AppImage, `latest-linux.yml`, etc., so **electron-updater** works. If nothing appears under **Releases**, check the workflow log for “skipped publishing” (often an existing release + electron-builder’s 2-hour guard — CI sets `EP_GH_IGNORE_TIME` to reduce that) and confirm **Settings → Actions → General → Workflow permissions** allows **Read and write** for `GITHUB_TOKEN`.
 
 ## Notes / troubleshooting
 
 - If a value shows `—` it means the corresponding sysfs file isn't exposed by your kernel/driver/hardware. The app degrades gracefully.
-- The polling rate is 1 Hz. **Settings** tab: extend the in-memory ring buffer up to **7 days** (~604k samples). **Chart time range** (what the sparklines show) is a **dropdown** in the top bar. Defaults are **6 h** buffer and **1 min** charts; settings are saved under Electron `userData` as **`linux-sensor-tray-settings.json`** (on first launch, **`monitor-settings.json`** under the old `~/.config/monitor` path is imported automatically if present).
-- Optional **disk logging**: append one JSON object per second to **`linux-sensor-tray-YYYY-MM-DD.jsonl`** (legacy: `monitor-*.jsonl`) in a folder you choose (default: Electron `userData/sensor_logs`). Each line is **schema 3**: chart metrics (`t`, `cpuLoad`, temps, GPU power, …) plus **`mem`**, **`cpu`**, **`cpuTuning`**, **`gpu`**, **`mainboard`**, **`storage`** (same detail level as in-app; large AMDGPU sysfs blobs are omitted). Older logs may be **schema 2** and can include a legacy **`smu`** block. **`history-viewer.html`** is copied alongside for offline charts; use `jq` or scripts for the extended fields.
+- The polling rate is 1 Hz. **Settings** tab: extend the in-memory ring buffer up to **7 days** (~~604k samples). **Chart time range** (what the sparklines show) is a **dropdown** in the top bar. Defaults are **6 h** buffer and **1 min** charts; settings are saved under Electron `userData` as `**linux-sensor-tray-settings.json`** (on first launch, `**monitor-settings.json**` under the old `~~/.config/monitor` path is imported automatically if present).
+- Optional **disk logging**: append one JSON object per second to `**linux-sensor-tray-YYYY-MM-DD.jsonl`** (legacy: `monitor-*.jsonl`) in a folder you choose (default: Electron `userData/sensor_logs`). Each line is **schema 3**: chart metrics (`t`, `cpuLoad`, temps, GPU power, …) plus `**mem`**, `**cpu**`, `**cpuTuning**`, `**gpu**`, `**mainboard**`, `**storage**` (same detail level as in-app; large AMDGPU sysfs blobs are omitted). Older logs may be **schema 2** and can include a legacy `**smu`** block. `**history-viewer.html**` is copied alongside for offline charts; use `jq` or scripts for the extended fields.
 - All sensor reads happen in the Electron main process; the renderer only receives a typed `SensorSnapshot` over IPC. The preload script is the only bridge (`contextIsolation: true`, `nodeIntegration: false`).
 - **AppImage / FUSE:** If the AppImage fails to run, install `fuse2` or `libfuse` (varies by distro) and try again.
+

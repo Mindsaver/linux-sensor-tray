@@ -13,8 +13,24 @@ require_cmd() {
   }
 }
 
+K10TEMP_BLACKLIST_FILE="/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf"
+
+ZENPOWER_CLI=""
+REPO_POS=""
+for arg in "$@"; do
+  case "$arg" in
+    --zenpower) ZENPOWER_CLI=yes ;;
+    --no-zenpower) ZENPOWER_CLI=no ;;
+    -*)
+      err "Unknown option: $arg"
+      exit 1
+      ;;
+    *) REPO_POS="$arg" ;;
+  esac
+done
+
 REPO="${LST_GH_REPO:-${MONITOR_GH_REPO:-}}"
-if [[ -z "$REPO" && -n "${1:-}" ]]; then REPO="$1"; fi
+if [[ -z "$REPO" && -n "${REPO_POS}" ]]; then REPO="$REPO_POS"; fi
 REPO="${REPO:-Mindsaver/linux-sensor-tray}"
 
 require_cmd curl
@@ -115,26 +131,80 @@ Categories=Utility;System;
 StartupWMClass=linux-sensor-tray
 EOF
 
-MACHINE="$MACHINE" python3 - <<PY >"$MANIFEST"
-import json, os
-print(
-    json.dumps(
-        {
-            "version": 1,
-            "repo": "${REPO}",
-            "appimage": "${STABLE_APPIMAGE}",
-            "desktop": "${DESKTOP_FILE}",
-            "bin_symlink": "${BIN_LINK}",
-            "machine": os.environ.get("MACHINE", ""),
-        },
-        indent=2,
-    )
-)
-PY
-
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 fi
+
+LST_K10TEMP_BLACKLIST=""
+is_amd_cpu() {
+  [[ -r /proc/cpuinfo ]] && grep -q "AuthenticAMD" /proc/cpuinfo
+}
+
+want_configure_zenpower() {
+  if [[ -n "$ZENPOWER_CLI" ]]; then
+    [[ "$ZENPOWER_CLI" == yes ]] && return 0
+    return 1
+  fi
+  local e="${LST_CONFIGURE_ZENPOWER:-${MONITOR_CONFIGURE_ZENPOWER:-}}"
+  case "$(printf '%s' "$e" | tr '[:upper:]' '[:lower:]')" in
+    1 | yes | true | on) return 0 ;;
+    0 | no | false | off) return 1 ;;
+  esac
+  if [[ -t 0 ]]; then
+    echo
+    warn "zenpower needs k10temp blacklisted so it can own the CPU hwmon (see README)."
+    echo -n "Install ${K10TEMP_BLACKLIST_FILE} and load zenpower now (sudo)? [y/N] "
+    read -r zreply
+    case "$zreply" in
+      y | Y | yes | YES) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+configure_zenpower_blacklist() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    err "sudo not found; cannot write modprobe config."
+    return 1
+  fi
+  info "Writing ${K10TEMP_BLACKLIST_FILE} (sudo)…"
+  if ! printf '%s\n' \
+    '# linux-sensor-tray: blacklist k10temp so zenpower can bind (managed by install.sh / uninstall.sh)' \
+    'blacklist k10temp' | sudo tee "$K10TEMP_BLACKLIST_FILE" >/dev/null; then
+    err "Failed to write ${K10TEMP_BLACKLIST_FILE}."
+    return 1
+  fi
+  info "Reloading modules (sudo)…"
+  sudo modprobe -r k10temp 2>/dev/null || warn "Could not unload k10temp (in use or built-in)."
+  if sudo modprobe zenpower 2>/dev/null; then
+    ok "zenpower loaded."
+  else
+    warn "zenpower did not load. Install it (e.g. zenpower3-dkms on Arch/CachyOS), then reboot or: sudo modprobe zenpower"
+  fi
+  LST_K10TEMP_BLACKLIST=1
+}
+
+if is_amd_cpu && want_configure_zenpower; then
+  configure_zenpower_blacklist || true
+fi
+
+export REPO STABLE_APPIMAGE DESKTOP_FILE BIN_LINK MACHINE LST_K10TEMP_BLACKLIST K10TEMP_BLACKLIST_FILE
+rm -f "$MANIFEST"
+python3 - <<'PY' >"$MANIFEST"
+import json, os
+
+data = {
+    "version": 2,
+    "repo": os.environ["REPO"],
+    "appimage": os.environ["STABLE_APPIMAGE"],
+    "desktop": os.environ["DESKTOP_FILE"],
+    "bin_symlink": os.environ["BIN_LINK"],
+    "machine": os.environ.get("MACHINE", ""),
+}
+if os.environ.get("LST_K10TEMP_BLACKLIST"):
+    data["k10temp_blacklist_file"] = os.environ["K10TEMP_BLACKLIST_FILE"]
+print(json.dumps(data, indent=2))
+PY
 
 ok "Linux Sensor Tray installed."
 info "  AppImage: ${STABLE_APPIMAGE}"

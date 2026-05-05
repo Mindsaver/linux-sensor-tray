@@ -3,6 +3,7 @@ set -euo pipefail
 
 info() { printf '\033[0;36m%s\033[0m\n' "$*"; }
 ok() { printf '\033[0;32m%s\033[0m\n' "$*"; }
+warn() { printf '\033[0;33m%s\033[0m\n' "$*"; }
 err() { printf '\033[0;31m%s\033[0m\n' "$*" >&2; }
 
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -51,6 +52,67 @@ if [[ "$ASSUME_YES" != true ]]; then
     y | Y | yes | YES) ;;
     *) info "Cancelled."; exit 0 ;;
   esac
+fi
+
+BLACKLIST_FILE="$(MANIFEST="$MANIFEST" python3 - <<'PY'
+import json, os
+
+path = os.environ["MANIFEST"]
+with open(path, encoding="utf-8") as f:
+    m = json.load(f)
+print(m.get("k10temp_blacklist_file") or "")
+PY
+)"
+
+want_revert_blacklist_env() {
+  local e="${LST_UNINSTALL_REVERT_ZENPOWER:-${MONITOR_UNINSTALL_REVERT_ZENPOWER:-}}"
+  case "$(printf '%s' "$e" | tr '[:upper:]' '[:lower:]')" in
+    1 | yes | true | on) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+revert_k10temp_blacklist() {
+  local f="$1"
+  [[ -n "$f" ]] || return 0
+  [[ -f "$f" ]] || return 0
+  if ! grep -q "linux-sensor-tray:" "$f" 2>/dev/null; then
+    warn "Refusing to remove ${f} (missing linux-sensor-tray marker)."
+    return 1
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    err "sudo not found; remove ${f} manually if you want k10temp back."
+    return 1
+  fi
+  info "Removing ${f} (sudo)…"
+  sudo rm -f "$f"
+  sudo modprobe -r zenpower 2>/dev/null || true
+  if sudo modprobe k10temp 2>/dev/null; then
+    ok "k10temp loaded."
+  else
+    warn "k10temp did not load immediately; try rebooting."
+  fi
+}
+
+DO_REVERT_BLACKLIST=false
+if [[ -n "$BLACKLIST_FILE" ]]; then
+  if [[ "$ASSUME_YES" == true ]]; then
+    if want_revert_blacklist_env; then
+      DO_REVERT_BLACKLIST=true
+    else
+      info "Leaving k10temp blacklist in place (${BLACKLIST_FILE}). Set LST_UNINSTALL_REVERT_ZENPOWER=1 to remove it non-interactively."
+    fi
+  else
+    echo -n "Remove k10temp blacklist installed with this app (${BLACKLIST_FILE}) and reload k10temp? [y/N] "
+    read -r rev
+    case "$rev" in
+      y | Y | yes | YES) DO_REVERT_BLACKLIST=true ;;
+    esac
+  fi
+fi
+
+if [[ "$DO_REVERT_BLACKLIST" == true ]]; then
+  revert_k10temp_blacklist "$BLACKLIST_FILE" || true
 fi
 
 rm_paths() {
