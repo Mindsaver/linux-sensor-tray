@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Linux Sensor Tray — history viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #12182c;
+      --border: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --accent2: #a78bfa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.6);
+    }
+    header h1 { margin: 0; font-size: 1.125rem; font-weight: 600; letter-spacing: 0.02em; }
+    header p {
+      margin: 0.35rem 0 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-width: 56rem;
+    }
+    main {
+      padding: 1.25rem 1.5rem 3rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    #drop {
+      border: 2px dashed var(--border);
+      border-radius: 1rem;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      background: var(--panel);
+      transition: border-color 0.15s, background 0.15s;
+      cursor: default;
+    }
+    #drop.drag { border-color: var(--accent); background: rgba(34, 211, 238, 0.06); }
+    #drop strong { color: var(--accent); }
+    #drop .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+    #fileBtn {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+      background: #1e293b;
+      color: var(--text);
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    #fileBtn:hover { background: #334155; }
+    #meta {
+      margin-top: 1.25rem;
+      padding: 1rem 1.25rem;
+      border-radius: 0.75rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: none;
+    }
+    #meta.visible { display: block; }
+    #meta .row { display: flex; flex-wrap: wrap; gap: 1rem 2rem; }
+    #meta span.val { color: var(--text); font-weight: 500; }
+    #err {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fecaca;
+      font-size: 0.85rem;
+      display: none;
+    }
+    #err.visible { display: block; }
+    .page-section-title {
+      margin: 2rem 0 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+    .chart-wrap {
+      margin-top: 1.5rem;
+      padding: 1rem 1.25rem;
+      border-radius: 0.75rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+    .chart-wrap h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .chart-box { position: relative; height: 220px; touch-action: none; }
+    @media (min-width: 900px) {
+      .chart-box { height: 260px; }
+    }
+    .chart-toolbar {
+      margin-top: 1.25rem;
+      display: none;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      padding: 0.65rem 1rem;
+      border-radius: 0.75rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+    .chart-toolbar.visible { display: flex; }
+    .chart-toolbar .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      flex: 1 1 100%;
+      margin: 0;
+    }
+    .chart-toolbar .btns { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+    .chart-toolbar button {
+      padding: 0.35rem 0.65rem;
+      border-radius: 0.45rem;
+      border: 1px solid var(--border);
+      background: #1e293b;
+      color: var(--text);
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .chart-toolbar button:hover { background: #334155; }
+    .chart-toolbar button.primary {
+      border-color: rgba(34, 211, 238, 0.35);
+      color: var(--accent);
+    }
+    #detail-panel {
+      display: none;
+      margin-top: 2rem;
+    }
+    #detail-panel.visible { display: block; }
+    .detail-time {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 0 0 1.25rem;
+    }
+    .detail-block {
+      margin-bottom: 1.5rem;
+      padding: 1rem 1.25rem;
+      border-radius: 0.75rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+    .detail-block h3 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--accent2);
+    }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.5rem 1.25rem;
+      font-size: 0.8rem;
+    }
+    .kv-grid dt {
+      margin: 0;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .kv-grid dd {
+      margin: 0 0 0.35rem;
+      font-family: ui-monospace, monospace;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      margin-top: 0.5rem;
+    }
+    .data-table th,
+    .data-table td {
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      text-align: left;
+    }
+    .data-table th {
+      background: rgba(30, 41, 59, 0.6);
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .data-table td { font-family: ui-monospace, monospace; }
+    .detail-note {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin: 0 0 1rem;
+      padding: 0.75rem;
+      background: rgba(30, 41, 59, 0.4);
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+    }
+    .mono { font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Linux Sensor Tray — history viewer</h1>
+    <p>
+      Drag and drop <strong>linux-sensor-tray-*.jsonl</strong> (or legacy <strong>monitor-*.jsonl</strong>) files. Charts support wheel zoom and drag-pan (toolbar syncs all charts).
+      <strong>Schema 2</strong> logs also show extra time series and a <strong>full snapshot</strong> of the latest sample below.
+      Very large logs are <strong>evenly downsampled</strong> for chart drawing only (see meta); the detail panel still reflects the latest full row.
+    </p>
+  </header>
+  <main>
+    <div id="drop">
+      <div>Drop <strong>.jsonl</strong> history files here</div>
+      <div class="hint">Compact fields power the first charts; extended blocks (<span class="mono">mem</span>, <span class="mono">cpu</span>, …) add more charts and the detail panel.</div>
+      <input type="file" id="file" accept=".jsonl,.json,.txt" multiple hidden />
+      <button type="button" id="fileBtn">Choose files…</button>
+    </div>
+    <div id="err"></div>
+    <div id="meta">
+      <div class="row">
+        <div>Samples: <span class="val" id="m-count">—</span></div>
+        <div>Span: <span class="val" id="m-span">—</span></div>
+        <div>Schema: <span class="val" id="m-schema">—</span></div>
+        <div>From: <span class="val" id="m-from">—</span></div>
+        <div>To: <span class="val" id="m-to">—</span></div>
+        <div>Chart points: <span class="val" id="m-chartpts">—</span></div>
+      </div>
+    </div>
+    <div id="chart-toolbar" class="chart-toolbar" aria-label="Chart zoom controls">
+      <div class="btns">
+        <button type="button" id="zoom-in" class="primary">Zoom in</button>
+        <button type="button" id="zoom-out" class="primary">Zoom out</button>
+        <button type="button" id="zoom-reset">Reset view</button>
+      </div>
+      <p class="hint">Wheel = zoom time · drag = pan · all charts stay in sync on the time axis.</p>
+    </div>
+
+    <h2 class="page-section-title">Core metrics (all logs)</h2>
+    <div class="chart-wrap" id="c1w" style="display:none">
+      <h2>Load & memory %</h2>
+      <div class="chart-box"><canvas id="c1"></canvas></div>
+    </div>
+    <div class="chart-wrap" id="c2w" style="display:none">
+      <h2>Temperatures</h2>
+      <div class="chart-box"><canvas id="c2"></canvas></div>
+    </div>
+    <div class="chart-wrap" id="c3w" style="display:none">
+      <h2>Power & voltage</h2>
+      <div class="chart-box"><canvas id="c3"></canvas></div>
+    </div>
+
+    <h2 class="page-section-title" id="ext-charts-title" style="display:none">Extended time series (schema 2+)</h2>
+    <div class="chart-wrap" id="c4w" style="display:none">
+      <h2>RAM & swap (GB)</h2>
+      <div class="chart-box"><canvas id="c4"></canvas></div>
+    </div>
+    <div class="chart-wrap" id="c5w" style="display:none">
+      <h2>CPU Tctl / Tdie &amp; SoC power</h2>
+      <div class="chart-box"><canvas id="c5"></canvas></div>
+    </div>
+    <div class="chart-wrap" id="c6w" style="display:none">
+      <h2>GPU clocks &amp; fan</h2>
+      <div class="chart-box"><canvas id="c6"></canvas></div>
+    </div>
+
+    <div id="detail-panel">
+      <h2 class="page-section-title">Latest sample — complete record</h2>
+      <p class="detail-time" id="detail-time"></p>
+      <div id="detail-body"></div>
+    </div>
+  </main>
+  <script>
+    (function () {
+      /** Suppress zoom/pan callbacks while applying the same range to every chart (avoids loops). */
+      var syncZoomSuppress = false
+      /** Coalesce follower updates to one repaint per animation frame (wheel / pan fire often). */
+      var syncFrame = null
+      var syncSourcePending = null
+
+      function scheduleLinkedSync(chart) {
+        if (syncZoomSuppress || !chart) return
+        syncSourcePending = chart
+        if (syncFrame != null) return
+        syncFrame = requestAnimationFrame(function () {
+          syncFrame = null
+          var src = syncSourcePending
+          syncSourcePending = null
+          if (!syncZoomSuppress && src) syncChartsXFrom(src)
+        })
+      }
+
+      function finalizeLinkedSync(chart) {
+        if (syncFrame != null) {
+          cancelAnimationFrame(syncFrame)
+          syncFrame = null
+        }
+        syncSourcePending = null
+        if (!syncZoomSuppress && chart) syncChartsXFrom(chart)
+      }
+
+      /** tMin/tMax = epoch ms (same as JSON field <code>t</code>). */
+      function zoomPluginConfig(tMin, tMax) {
+        var span = Math.max(tMax - tMin, 1)
+        var minRange = Math.max(span / 400, 15 * 1000)
+        return {
+          limits: { x: { min: tMin, max: tMax, minRange: minRange } },
+          zoom: {
+            wheel: { enabled: true, speed: 0.05 },
+            pinch: { enabled: true },
+            mode: 'x',
+            onZoom: function (ctx) {
+              if (ctx.trigger === 'api') return
+              scheduleLinkedSync(ctx.chart)
+            },
+            onZoomComplete: function (ctx) {
+              finalizeLinkedSync(ctx.chart)
+            }
+          },
+          pan: {
+            enabled: true,
+            mode: 'x',
+            onPan: function (ctx) {
+              scheduleLinkedSync(ctx.chart)
+            },
+            onPanComplete: function (ctx) {
+              finalizeLinkedSync(ctx.chart)
+            }
+          }
+        }
+      }
+
+      function numScale(v) {
+        if (v == null) return NaN
+        if (typeof v === 'number') return v
+        if (typeof v === 'object' && typeof v.getTime === 'function') return v.getTime()
+        return Number(v)
+      }
+
+      /** Match every chart’s X range to <code>source</code> (wheel zoom / drag pan). */
+      function syncChartsXFrom(source) {
+        var sx = source.scales.x
+        if (!sx) return
+        var min = numScale(sx.min)
+        var max = numScale(sx.max)
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return
+
+        syncZoomSuppress = true
+        try {
+          getCharts().forEach(function (c) {
+            if (c === source) return
+            var cx = c.scales.x
+            if (!cx || typeof c.zoomScale !== 'function') return
+            var cmin = numScale(cx.min)
+            var cmax = numScale(cx.max)
+            if (
+              Number.isFinite(cmin) &&
+              Number.isFinite(cmax) &&
+              Math.abs(cmin - min) < 1 &&
+              Math.abs(cmax - max) < 1
+            ) {
+              return
+            }
+            c.zoomScale('x', { min: min, max: max }, 'none')
+          })
+        } finally {
+          syncZoomSuppress = false
+        }
+      }
+
+      /** Max points fed to Chart.js per log (full file still parsed for meta + detail). */
+      var MAX_CHART_SAMPLES = 8000
+
+      /**
+       * Extra layout padding so single-Y charts match the plot width of dual-Y charts
+       * (W+V / °C+W / MHz+RPM) which reserve space for the right axis title + ticks.
+       */
+      var RIGHT_Y_AXIS_RESERVE_PX = 58
+
+      const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            titleColor: '#e2e8f0',
+            bodyColor: '#cbd5e1',
+            borderColor: '#334155',
+            borderWidth: 1
+          }
+        },
+        scales: {
+          x: {
+            type: 'time',
+            title: { display: true, text: 'Time (local)', color: '#64748b', font: { size: 11 } },
+            grid: { color: 'rgba(51, 65, 85, 0.35)' },
+            ticks: { color: '#64748b', maxTicksLimit: 12 },
+            time: {
+              tooltipFormat: 'yyyy-MM-dd HH:mm:ss',
+              displayFormats: {
+                millisecond: 'HH:mm:ss',
+                second: 'HH:mm:ss',
+                minute: 'MMM d HH:mm',
+                hour: 'MMM d HH:mm',
+                day: 'MMM d',
+                week: 'MMM d yyyy',
+                month: 'MMM yyyy',
+                quarter: 'yyyy',
+                year: 'yyyy'
+              }
+            }
+          },
+          y: {
+            grid: { color: 'rgba(51, 65, 85, 0.35)' },
+            ticks: { color: '#64748b' }
+          }
+        }
+      }
+
+      var chartList = []
+
+      function getCharts() {
+        return chartList.filter(Boolean)
+      }
+
+      function zoomTimeAxis(rangeFactor) {
+        var charts = getCharts()
+        if (!charts.length) return
+        var x = charts[0].scales.x
+        if (!x || typeof charts[0].zoomScale !== 'function') return
+        var lo = numScale(x.min)
+        var hi = numScale(x.max)
+        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return
+        var mid = (lo + hi) / 2
+        var half = ((hi - lo) * rangeFactor) / 2
+        var nmin = mid - half
+        var nmax = mid + half
+        syncZoomSuppress = true
+        try {
+          charts.forEach(function (c) {
+            if (typeof c.zoomScale === 'function') c.zoomScale('x', { min: nmin, max: nmax }, 'none')
+          })
+        } finally {
+          syncZoomSuppress = false
+        }
+      }
+
+      function resetAllZoom() {
+        syncZoomSuppress = true
+        try {
+          getCharts().forEach(function (c) {
+            if (typeof c.resetZoom === 'function') c.resetZoom()
+          })
+        } finally {
+          syncZoomSuppress = false
+        }
+      }
+
+      function destroyCharts() {
+        if (syncFrame != null) {
+          cancelAnimationFrame(syncFrame)
+          syncFrame = null
+        }
+        syncSourcePending = null
+        chartList.forEach(function (c) {
+          if (c) try { c.destroy() } catch (e) {}
+        })
+        chartList = []
+      }
+
+      function parseJsonl(text) {
+        var rows = []
+        var start = 0
+        var len = text.length
+        for (var i = 0; i <= len; i++) {
+          if (i === len || text.charCodeAt(i) === 10) {
+            var lineEnd = i
+            if (lineEnd > start && text.charCodeAt(lineEnd - 1) === 13) lineEnd--
+            if (lineEnd > start) {
+              var line = text.slice(start, lineEnd).trim()
+              if (line) {
+                try {
+                  var o = JSON.parse(line)
+                  if (o && typeof o.t === 'number') rows.push(o)
+                } catch (e) {}
+              }
+            }
+            start = i + 1
+          }
+        }
+        rows.sort(function (a, b) { return a.t - b.t })
+        return rows
+      }
+
+      /** Evenly pick rows so charts stay responsive; always includes first & last sample. */
+      function downsampleRows(rows, maxN) {
+        if (!rows.length || rows.length <= maxN) return rows
+        var n = rows.length
+        var out = []
+        var step = (n - 1) / (maxN - 1)
+        var lastIdx = -1
+        for (var i = 0; i < maxN; i++) {
+          var idx = Math.min(n - 1, Math.round(i * step))
+          if (idx !== lastIdx) {
+            out.push(rows[idx])
+            lastIdx = idx
+          }
+        }
+        return out
+      }
+
+      function showErr(msg) {
+        var el = document.getElementById('err')
+        el.textContent = msg
+        el.classList.add('visible')
+      }
+      function hideErr() {
+        var el = document.getElementById('err')
+        el.classList.remove('visible')
+        el.textContent = ''
+      }
+
+      function toXY(rows, key) {
+        if (!rows.length) return []
+        return rows
+          .map(function (r) {
+            var y = r[key]
+            if (y == null || !Number.isFinite(y)) return null
+            if (typeof r.t !== 'number' || !Number.isFinite(r.t)) return null
+            return { x: r.t, y: y }
+          })
+          .filter(Boolean)
+      }
+
+      function toXYPath(rows, pick) {
+        if (!rows.length) return []
+        return rows
+          .map(function (r) {
+            var y = pick(r)
+            if (y == null || !Number.isFinite(y)) return null
+            if (typeof r.t !== 'number' || !Number.isFinite(r.t)) return null
+            return { x: r.t, y: y }
+          })
+          .filter(Boolean)
+      }
+
+      function hasSchema2(rows) {
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].schema >= 2 || rows[i].mem != null) return true
+        }
+        return false
+      }
+
+      function escapeHtml(s) {
+        if (s == null) return '—'
+        return String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+      }
+
+      function fmtKB(kb) {
+        if (kb == null || !Number.isFinite(kb)) return '—'
+        var gb = kb / (1024 * 1024)
+        return gb.toFixed(2) + ' GB (' + Math.round(kb).toLocaleString() + ' KB)'
+      }
+
+      function kvBlock(title, pairs) {
+        var html = '<div class="detail-block"><h3>' + escapeHtml(title) + '</h3><dl class="kv-grid">'
+        for (var i = 0; i < pairs.length; i++) {
+          html +=
+            '<dt>' +
+            escapeHtml(pairs[i][0]) +
+            '</dt><dd>' +
+            escapeHtml(pairs[i][1]) +
+            '</dd>'
+        }
+        html += '</dl></div>'
+        return html
+      }
+
+      function tableFromRows(title, columns, rowObjs) {
+        if (!rowObjs || !rowObjs.length) return ''
+        var html = '<div class="detail-block"><h3>' + escapeHtml(title) + '</h3><table class="data-table"><thead><tr>'
+        for (var c = 0; c < columns.length; c++) {
+          html += '<th>' + escapeHtml(columns[c]) + '</th>'
+        }
+        html += '</tr></thead><tbody>'
+        for (var r = 0; r < rowObjs.length; r++) {
+          html += '<tr>'
+          for (var j = 0; j < rowObjs[r].length; j++) {
+            html += '<td>' + escapeHtml(rowObjs[r][j]) + '</td>'
+          }
+          html += '</tr>'
+        }
+        html += '</tbody></table></div>'
+        return html
+      }
+
+      function renderDetailPanel(rows) {
+        var panel = document.getElementById('detail-panel')
+        var body = document.getElementById('detail-body')
+        var timeEl = document.getElementById('detail-time')
+        if (!rows.length) {
+          panel.classList.remove('visible')
+          return
+        }
+        var last = rows[rows.length - 1]
+        if (!hasSchema2(rows)) {
+          panel.classList.add('visible')
+          timeEl.textContent = 'Latest timestamp: ' + new Date(last.t).toLocaleString()
+          body.innerHTML =
+            '<p class="detail-note">These rows look like <strong>schema 1</strong> (compact chart fields only). Run a current Linux Sensor Tray build with disk logging to write <strong>schema 2+</strong> for memory, per-core CPU, mainboard, NVMe, and tuning blocks. Older schema 2 files may also include a legacy <strong>smu</strong> section.</p>' +
+            kvBlock('Top-level chart fields (latest)', [
+              ['cpuLoad %', last.cpuLoad != null ? String(last.cpuLoad) : '—'],
+              ['cpuTctl °C', last.cpuTctl != null ? String(last.cpuTctl) : '—'],
+              ['cpuVcore V', last.cpuVcore != null ? String(last.cpuVcore) : '—'],
+              ['cpuPCore W', last.cpuPCore != null ? String(last.cpuPCore) : '—'],
+              ['gpuBusy %', last.gpuBusy != null ? String(last.gpuBusy) : '—'],
+              ['gpuEdge °C', last.gpuEdge != null ? String(last.gpuEdge) : '—'],
+              ['gpuJunction °C', last.gpuJunction != null ? String(last.gpuJunction) : '—'],
+              ['gpuMem °C', last.gpuMem != null ? String(last.gpuMem) : '—'],
+              ['gpuVddgfx V', last.gpuVddgfx != null ? String(last.gpuVddgfx) : '—'],
+              ['gpuPower W', last.gpuPower != null ? String(last.gpuPower) : '—'],
+              ['ramUsedPct', last.ramUsedPct != null ? String(last.ramUsedPct) : '—']
+            ])
+          return
+        }
+
+        panel.classList.add('visible')
+        timeEl.textContent =
+          'Latest sample: ' +
+          new Date(last.t).toLocaleString() +
+          ' · schema ' +
+          (last.schema != null ? last.schema : '2')
+
+        var parts = []
+
+        if (last.mem) {
+          parts.push(
+            kvBlock('Memory', [
+              ['total', fmtKB(last.mem.totalKB)],
+              ['used', fmtKB(last.mem.usedKB)],
+              ['available', fmtKB(last.mem.availableKB)],
+              ['swap total', fmtKB(last.mem.swapTotalKB)],
+              ['swap used', fmtKB(last.mem.swapUsedKB)],
+              ['swap free', fmtKB(last.mem.swapFreeKB)]
+            ])
+          )
+        }
+
+        if (last.cpu) {
+          var c = last.cpu
+          var ccdStr =
+            c.tempCcds && c.tempCcds.length ? c.tempCcds.map(function (x) { return String(x) }).join(' / ') : '—'
+          parts.push(
+            kvBlock('CPU', [
+              ['model', c.model || '—'],
+              ['tempTdie °C', c.tempTdie != null ? String(c.tempTdie) : '—'],
+              ['tempCcds °C', ccdStr],
+              ['V SoC', c.vSoC != null ? String(c.vSoC) + ' V' : '—'],
+              ['P SoC', c.pSoC != null ? String(c.pSoC) + ' W' : '—'],
+              ['I Core', c.iCore != null ? String(c.iCore) + ' A' : '—'],
+              ['I SoC', c.iSoC != null ? String(c.iSoC) + ' A' : '—'],
+              ['zenpower', c.hasZenpower ? 'yes' : 'no']
+            ])
+          )
+          if (c.cores && c.cores.length) {
+            var cr = c.cores.map(function (x) {
+              return [
+                String(x.i),
+                x.load != null ? String(x.load) : '—',
+                x.mhz != null ? String(x.mhz) : '—'
+              ]
+            })
+            parts.push(tableFromRows('CPU cores (latest)', ['Core', 'Load %', 'MHz'], cr))
+          }
+        }
+
+        if (last.cpuTuning) {
+          var t = last.cpuTuning
+          var boost =
+            t.boostFreqsMHz && t.boostFreqsMHz.length
+              ? t.boostFreqsMHz.map(function (x) { return String(x) }).join(', ')
+              : '—'
+          parts.push(
+            kvBlock('CPU tuning (cpufreq)', [
+              ['driver', t.cpufreqDriver || '—'],
+              ['governor', t.governor || '—'],
+              ['cpuinfo min MHz', t.cpuinfoMinMHz != null ? String(t.cpuinfoMinMHz) : '—'],
+              ['cpuinfo max MHz', t.cpuinfoMaxMHz != null ? String(t.cpuinfoMaxMHz) : '—'],
+              ['scaling min MHz', t.scalingMinMHz != null ? String(t.scalingMinMHz) : '—'],
+              ['scaling max MHz', t.scalingMaxMHz != null ? String(t.scalingMaxMHz) : '—'],
+              ['BIOS limit MHz', t.biosLimitMHz != null ? String(t.biosLimitMHz) : '—'],
+              ['EPP', t.energyPerformancePreference || '—'],
+              ['amd_pstate', t.amdPstateStatus || '—'],
+              ['boost freqs MHz', boost]
+            ])
+          )
+        }
+
+        if (last.smu) {
+          var s = last.smu
+          if (s.attempted === false) {
+            parts.push('<div class="detail-block"><h3>SMU</h3><p class="detail-note">Not attempted in this build / run.</p></div>')
+          } else {
+            var smuPairs = [
+              ['ok', String(s.ok)],
+              ['error', s.error || '—'],
+              ['generation', s.generation || '—'],
+              ['hasCo', String(s.hasCo)],
+              ['coRange', s.coRange ? s.coRange[0] + ' … ' + s.coRange[1] : '—'],
+              ['pboScalar', s.pboScalar != null ? String(s.pboScalar) : '—'],
+              ['boostLimit MHz', s.boostLimitMhz != null ? String(s.boostLimitMhz) : '—'],
+              ['fastestCore', s.fastestCore != null ? String(s.fastestCore) : '—'],
+              ['maxFreq MHz', s.maxFreqMhz != null ? String(s.maxFreqMhz) : '—'],
+              ['est. BCLK MHz', s.estimatedBclkMhz != null ? String(s.estimatedBclkMhz) : '—']
+            ]
+            parts.push(kvBlock('SMU', smuPairs))
+            if (s.coOffsets && typeof s.coOffsets === 'object') {
+              var keys = Object.keys(s.coOffsets).sort(function (a, b) { return Number(a) - Number(b) })
+              var coRows = keys.map(function (k) {
+                var v = s.coOffsets[k]
+                return [k, v != null ? String(v) : '—']
+              })
+              parts.push(tableFromRows('Curve Optimizer (per core)', ['Core', 'Offset'], coRows))
+            }
+          }
+        }
+
+        if (last.gpu) {
+          var g = last.gpu
+          parts.push(
+            kvBlock('GPU', [
+              ['model', g.model || '—'],
+              ['power cap W', g.powerCap != null ? String(g.powerCap) : '—'],
+              ['sclk MHz', g.sclkMHz != null ? String(g.sclkMHz) : '—'],
+              ['mclk MHz', g.mclkMHz != null ? String(g.mclkMHz) : '—'],
+              ['fan RPM', g.fanRpm != null ? String(g.fanRpm) : '—'],
+              ['fan max RPM', g.fanMax != null ? String(g.fanMax) : '—'],
+              ['fan PWM %', g.fanPwm != null ? String(g.fanPwm) : '—'],
+              ['DPM level', g.dpmPerformanceLevel || '—'],
+              ['DPM state', g.dpmState || '—'],
+              ['PPT default W', g.powerCapDefaultW != null ? String(g.powerCapDefaultW) : '—'],
+              ['PPT max W', g.powerCapMaxW != null ? String(g.powerCapMaxW) : '—'],
+              ['PPT min W', g.powerCapMinW != null ? String(g.powerCapMinW) : '—']
+            ])
+          )
+        }
+
+        if (last.mainboard) {
+          var m = last.mainboard
+          parts.push(kvBlock('Mainboard', [['chip', m.chip || '—']]))
+          if (m.voltages && m.voltages.length) {
+            parts.push(
+              tableFromRows(
+                'Mainboard voltages',
+                ['Label', 'V'],
+                m.voltages.map(function (v) {
+                  return [v.label, v.volts != null ? String(v.volts) : '—']
+                })
+              )
+            )
+          }
+          if (m.fans && m.fans.length) {
+            parts.push(
+              tableFromRows(
+                'Fans',
+                ['Label', 'RPM'],
+                m.fans.map(function (f) {
+                  return [f.label, f.rpm != null ? String(f.rpm) : '—']
+                })
+              )
+            )
+          }
+          if (m.temps && m.temps.length) {
+            parts.push(
+              tableFromRows(
+                'Board temps',
+                ['Label', '°C'],
+                m.temps.map(function (f) {
+                  return [f.label, f.tempC != null ? String(f.tempC) : '—']
+                })
+              )
+            )
+          }
+        }
+
+        if (last.storage && last.storage.length) {
+          for (var di = 0; di < last.storage.length; di++) {
+            var d = last.storage[di]
+            parts.push(
+              kvBlock('Storage · ' + (d.label || 'drive'), [
+                ['composite °C', d.composite != null ? String(d.composite) : '—']
+              ])
+            )
+            if (d.sensorsAdditional && d.sensorsAdditional.length) {
+              parts.push(
+                tableFromRows(
+                  'Storage · ' + (d.label || 'drive') + ' · extra temps',
+                  ['Label', '°C'],
+                  d.sensorsAdditional.map(function (s) {
+                    return [s.label, s.tempC != null ? String(s.tempC) : '—']
+                  })
+                )
+              )
+            }
+          }
+        }
+
+        body.innerHTML = parts.join('')
+      }
+
+      function pushChart(ch) {
+        chartList.push(ch)
+      }
+
+      function render(rows) {
+        hideErr()
+        destroyCharts()
+
+        var extTitle = document.getElementById('ext-charts-title')
+        var c4w = document.getElementById('c4w')
+        var c5w = document.getElementById('c5w')
+        var c6w = document.getElementById('c6w')
+        c4w.style.display = 'none'
+        c5w.style.display = 'none'
+        c6w.style.display = 'none'
+        extTitle.style.display = 'none'
+
+        var chartRows = rows
+        if (rows.length > MAX_CHART_SAMPLES) {
+          chartRows = downsampleRows(rows, MAX_CHART_SAMPLES)
+        }
+
+        if (!rows.length) {
+          showErr('No valid rows found (expected JSON lines with a numeric "t" field).')
+          document.getElementById('meta').classList.remove('visible')
+          document.getElementById('chart-toolbar').classList.remove('visible')
+          ;['c1w', 'c2w', 'c3w'].forEach(function (id) {
+            document.getElementById(id).style.display = 'none'
+          })
+          document.getElementById('detail-panel').classList.remove('visible')
+          return
+        }
+
+        var t0 = rows[0].t
+        var t1 = rows[rows.length - 1].t
+        var spanMin = (t1 - t0) / 60000
+        var ext = hasSchema2(rows)
+
+        document.getElementById('m-count').textContent = String(rows.length)
+        document.getElementById('m-span').textContent =
+          spanMin < 120 ? spanMin.toFixed(1) + ' min' : (spanMin / 60).toFixed(2) + ' h'
+        document.getElementById('m-schema').textContent = ext ? '2+ (extended)' : '1 (compact)'
+        document.getElementById('m-from').textContent = new Date(t0).toLocaleString()
+        document.getElementById('m-to').textContent = new Date(t1).toLocaleString()
+        var ptsEl = document.getElementById('m-chartpts')
+        if (rows.length > MAX_CHART_SAMPLES) {
+          ptsEl.textContent =
+            String(chartRows.length) + ' drawn (evenly spaced from ' + String(rows.length) + ')'
+        } else {
+          ptsEl.textContent = String(rows.length) + ' (all)'
+        }
+        document.getElementById('meta').classList.add('visible')
+        document.getElementById('chart-toolbar').classList.add('visible')
+
+        var dark = { grid: chartDefaults.scales.x.grid.color, text: '#64748b' }
+
+        var ds = function (label, data, color, yAxisID) {
+          return {
+            label: label,
+            data: data,
+            borderColor: color,
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.15,
+            pointRadius: 0,
+            borderWidth: 1.5,
+            yAxisID: yAxisID || 'y'
+          }
+        }
+
+        var zoomOpts = { zoom: zoomPluginConfig(t0, t1) }
+
+        document.getElementById('c1w').style.display = 'block'
+        pushChart(
+          new Chart(document.getElementById('c1'), {
+            type: 'line',
+            data: {
+              datasets: [
+                ds('CPU load %', toXY(chartRows, 'cpuLoad'), 'rgb(34, 211, 238)'),
+                ds('GPU busy %', toXY(chartRows, 'gpuBusy'), 'rgb(167, 139, 250)'),
+                ds('RAM used %', toXY(chartRows, 'ramUsedPct'), 'rgb(52, 211, 153)')
+              ]
+            },
+            options: {
+              ...chartDefaults,
+              layout: { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } },
+              plugins: { ...chartDefaults.plugins, ...zoomOpts },
+              scales: {
+                ...chartDefaults.scales,
+                y: {
+                  ...chartDefaults.scales.y,
+                  min: 0,
+                  max: 100,
+                  title: { display: true, text: '%', color: dark.text, font: { size: 11 } }
+                }
+              }
+            }
+          })
+        )
+
+        document.getElementById('c2w').style.display = 'block'
+        pushChart(
+          new Chart(document.getElementById('c2'), {
+            type: 'line',
+            data: {
+              datasets: [
+                ds('CPU Tctl °C', toXY(chartRows, 'cpuTctl'), 'rgb(248, 113, 113)'),
+                ds('GPU junction °C', toXY(chartRows, 'gpuJunction'), 'rgb(251, 146, 60)'),
+                ds('GPU edge °C', toXY(chartRows, 'gpuEdge'), 'rgb(34, 211, 238)'),
+                ds('GPU mem °C', toXY(chartRows, 'gpuMem'), 'rgb(250, 204, 21)')
+              ]
+            },
+            options: {
+              ...chartDefaults,
+              layout: { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } },
+              plugins: { ...chartDefaults.plugins, ...zoomOpts },
+              scales: {
+                ...chartDefaults.scales,
+                y: {
+                  ...chartDefaults.scales.y,
+                  title: { display: true, text: '°C', color: dark.text, font: { size: 11 } }
+                }
+              }
+            }
+          })
+        )
+
+        document.getElementById('c3w').style.display = 'block'
+        pushChart(
+          new Chart(document.getElementById('c3'), {
+            type: 'line',
+            data: {
+              datasets: [
+                ds('CPU package W', toXY(chartRows, 'cpuPCore'), 'rgb(34, 211, 238)', 'y'),
+                ds('GPU power W', toXY(chartRows, 'gpuPower'), 'rgb(167, 139, 250)', 'y'),
+                ds('Vcore V', toXY(chartRows, 'cpuVcore'), 'rgb(52, 211, 153)', 'y1'),
+                ds('vddgfx V', toXY(chartRows, 'gpuVddgfx'), 'rgb(250, 204, 21)', 'y1')
+              ]
+            },
+            options: {
+              ...chartDefaults,
+              plugins: { ...chartDefaults.plugins, ...zoomOpts },
+              scales: {
+                x: chartDefaults.scales.x,
+                y: {
+                  type: 'linear',
+                  position: 'left',
+                  title: { display: true, text: 'Watts', color: dark.text, font: { size: 11 } },
+                  grid: { color: 'rgba(51, 65, 85, 0.35)' },
+                  ticks: { color: dark.text }
+                },
+                y1: {
+                  type: 'linear',
+                  position: 'right',
+                  title: { display: true, text: 'Volts', color: dark.text, font: { size: 11 } },
+                  grid: { drawOnChartArea: false },
+                  ticks: { color: dark.text }
+                }
+              }
+            }
+          })
+        )
+
+        if (ext) {
+          extTitle.style.display = 'block'
+          var ramUsed = toXYPath(chartRows, function (r) {
+            return r.mem && r.mem.usedKB != null ? r.mem.usedKB / (1024 * 1024) : null
+          })
+          var swapUsed = toXYPath(chartRows, function (r) {
+            return r.mem && r.mem.swapUsedKB != null ? r.mem.swapUsedKB / (1024 * 1024) : null
+          })
+          if (ramUsed.length || swapUsed.length) {
+            c4w.style.display = 'block'
+            pushChart(
+              new Chart(document.getElementById('c4'), {
+                type: 'line',
+                data: {
+                  datasets: [
+                    ds('RAM used GB', ramUsed, 'rgb(52, 211, 153)'),
+                    ds('Swap used GB', swapUsed, 'rgb(251, 146, 60)')
+                  ]
+                },
+                options: {
+                  ...chartDefaults,
+                  layout: { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } },
+                  plugins: { ...chartDefaults.plugins, ...zoomOpts },
+                  scales: {
+                    ...chartDefaults.scales,
+                    y: {
+                      ...chartDefaults.scales.y,
+                      title: { display: true, text: 'GB', color: dark.text, font: { size: 11 } }
+                    }
+                  }
+                }
+              })
+            )
+          }
+
+          var tdie = toXYPath(chartRows, function (r) {
+            return r.cpu && r.cpu.tempTdie != null ? r.cpu.tempTdie : null
+          })
+          var tctlLine = toXY(chartRows, 'cpuTctl')
+          var pSoC = toXYPath(chartRows, function (r) {
+            return r.cpu && r.cpu.pSoC != null ? r.cpu.pSoC : null
+          })
+          if (tdie.length || tctlLine.length || pSoC.length) {
+            c5w.style.display = 'block'
+            pushChart(
+              new Chart(document.getElementById('c5'), {
+                type: 'line',
+                data: {
+                  datasets: [
+                    ds('CPU Tctl °C', tctlLine, 'rgb(248, 113, 113)', 'y'),
+                    ds('CPU Tdie °C', tdie, 'rgb(251, 113, 133)', 'y'),
+                    ds('SoC power W', pSoC, 'rgb(167, 139, 250)', 'y1')
+                  ]
+                },
+                options: {
+                  ...chartDefaults,
+                  plugins: { ...chartDefaults.plugins, ...zoomOpts },
+                  scales: {
+                    x: chartDefaults.scales.x,
+                    y: {
+                      type: 'linear',
+                      position: 'left',
+                      title: { display: true, text: '°C', color: dark.text, font: { size: 11 } },
+                      grid: { color: 'rgba(51, 65, 85, 0.35)' },
+                      ticks: { color: dark.text }
+                    },
+                    y1: {
+                      type: 'linear',
+                      position: 'right',
+                      title: { display: true, text: 'W', color: dark.text, font: { size: 11 } },
+                      grid: { drawOnChartArea: false },
+                      ticks: { color: dark.text }
+                    }
+                  }
+                }
+              })
+            )
+          }
+
+          var sclk = toXYPath(chartRows, function (r) {
+            return r.gpu && r.gpu.sclkMHz != null ? r.gpu.sclkMHz : null
+          })
+          var mclk = toXYPath(chartRows, function (r) {
+            return r.gpu && r.gpu.mclkMHz != null ? r.gpu.mclkMHz : null
+          })
+          var fan = toXYPath(chartRows, function (r) {
+            return r.gpu && r.gpu.fanRpm != null ? r.gpu.fanRpm : null
+          })
+          if (sclk.length || mclk.length || fan.length) {
+            c6w.style.display = 'block'
+            pushChart(
+              new Chart(document.getElementById('c6'), {
+                type: 'line',
+                data: {
+                  datasets: [
+                    ds('sclk MHz', sclk, 'rgb(34, 211, 238)', 'y'),
+                    ds('mclk MHz', mclk, 'rgb(52, 211, 153)', 'y'),
+                    ds('fan RPM', fan, 'rgb(250, 204, 21)', 'y1')
+                  ]
+                },
+                options: {
+                  ...chartDefaults,
+                  plugins: { ...chartDefaults.plugins, ...zoomOpts },
+                  scales: {
+                    x: chartDefaults.scales.x,
+                    y: {
+                      type: 'linear',
+                      position: 'left',
+                      title: { display: true, text: 'MHz', color: dark.text, font: { size: 11 } },
+                      grid: { color: 'rgba(51, 65, 85, 0.35)' },
+                      ticks: { color: dark.text }
+                    },
+                    y1: {
+                      type: 'linear',
+                      position: 'right',
+                      title: { display: true, text: 'RPM', color: dark.text, font: { size: 11 } },
+                      grid: { drawOnChartArea: false },
+                      ticks: { color: dark.text }
+                    }
+                  }
+                }
+              })
+            )
+          }
+        }
+
+        renderDetailPanel(rows)
+      }
+
+      function loadFiles(files) {
+        var list = Array.prototype.slice.call(files).filter(function (f) {
+          return /\.(jsonl|json|txt)$/i.test(f.name)
+        })
+        if (!list.length) {
+          showErr('No .jsonl (or .json/.txt) files in selection.')
+          return
+        }
+        Promise.all(
+          list.map(function (f) {
+            return f.text()
+          })
+        )
+          .then(function (texts) {
+            var all = []
+            for (var i = 0; i < texts.length; i++) {
+              all = all.concat(parseJsonl(texts[i]))
+            }
+            all.sort(function (a, b) { return a.t - b.t })
+            render(all)
+          })
+          .catch(function (e) {
+            showErr('Could not read file: ' + (e.message || String(e)))
+          })
+      }
+
+      var drop = document.getElementById('drop')
+      var fileInput = document.getElementById('file')
+      var fileBtn = document.getElementById('fileBtn')
+
+      ;['dragenter', 'dragover'].forEach(function (ev) {
+        drop.addEventListener(ev, function (e) {
+          e.preventDefault()
+          e.stopPropagation()
+          drop.classList.add('drag')
+        })
+      })
+      ;['dragleave', 'drop'].forEach(function (ev) {
+        drop.addEventListener(ev, function (e) {
+          e.preventDefault()
+          e.stopPropagation()
+          if (ev === 'drop') loadFiles(e.dataTransfer.files)
+          drop.classList.remove('drag')
+        })
+      })
+
+      fileBtn.addEventListener('click', function () {
+        fileInput.click()
+      })
+      fileInput.addEventListener('change', function () {
+        if (fileInput.files && fileInput.files.length) loadFiles(fileInput.files)
+        fileInput.value = ''
+      })
+
+      var ZOOM_IN_FACTOR = 0.65
+      var ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR
+      document.getElementById('zoom-in').addEventListener('click', function () {
+        zoomTimeAxis(ZOOM_IN_FACTOR)
+      })
+      document.getElementById('zoom-out').addEventListener('click', function () {
+        zoomTimeAxis(ZOOM_OUT_FACTOR)
+      })
+      document.getElementById('zoom-reset').addEventListener('click', resetAllZoom)
+    })()
+  </script>
+</body>
+</html>

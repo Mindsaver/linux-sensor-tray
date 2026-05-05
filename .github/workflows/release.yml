@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (type it with a leading v, e.g. v0.2.0 — bare 0.2.0 also works). Ignored when the job was triggered by pushing a git tag.'
+        required: true
+        type: string
+
+# Run checkout/setup-node and other JS actions on Node 24 (Node 20 runner deprecation).
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify (typecheck + build)
+    # Run on PRs, any workflow push (main + tags — see workflow `on:`), and manual release prep.
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  linux-release:
+    name: Linux AppImage + publish
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # Tag push: use ref (v1.2.3). Manual “Run workflow”: use required input (e.g. v0.2.0).
+      - name: Sync root version from tag or workflow input
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+        run: node scripts/set-root-version.mjs
+
+      - name: Apply GitHub publish config for electron-updater
+        run: node scripts/apply-github-publish.mjs
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+
+      - run: npm ci
+
+      - name: Build and publish to GitHub Releases
+        run: |
+          node -e "console.log('Publishing version', require('./package.json').version)"
+          npm run dist:publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Allow uploading to an existing release older than 2h (electron-builder otherwise skips).
+          EP_GH_IGNORE_TIME: true
