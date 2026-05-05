@@ -6,6 +6,18 @@ ok() { printf '\033[0;32m%s\033[0m\n' "$*"; }
 warn() { printf '\033[0;33m%s\033[0m\n' "$*"; }
 err() { printf '\033[0;31m%s\033[0m\n' "$*" >&2; }
 
+# curl … | bash feeds the script on stdin; prompts must use the controlling TTY.
+can_prompt_tty() {
+  [[ -r /dev/tty && -w /dev/tty ]]
+}
+
+prompt_line_tty() {
+  local prompt="$1"
+  local varname="$2"
+  printf '%s' "$prompt" > /dev/tty
+  IFS= read -r "$varname" < /dev/tty
+}
+
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 
 resolve_manifest() {
@@ -46,8 +58,12 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 if [[ "$ASSUME_YES" != true ]]; then
-  echo -n "Remove Linux Sensor Tray (desktop entry, symlink, AppImage)? [y/N] "
-  read -r reply
+  if ! can_prompt_tty; then
+    err "No controlling terminal (piped install cannot read answers from stdin)."
+    err "Run this script in a real terminal, or use non-interactive: --yes / LST_UNINSTALL_YES=1"
+    exit 1
+  fi
+  prompt_line_tty "Remove Linux Sensor Tray (desktop entry, symlink, AppImage)? [y/N] " reply
   case "$reply" in
     y | Y | yes | YES) ;;
     *) info "Cancelled."; exit 0 ;;
@@ -103,8 +119,7 @@ if [[ -n "$BLACKLIST_FILE" ]]; then
       info "Leaving k10temp blacklist in place (${BLACKLIST_FILE}). Set LST_UNINSTALL_REVERT_ZENPOWER=1 to remove it non-interactively."
     fi
   else
-    echo -n "Remove k10temp blacklist installed with this app (${BLACKLIST_FILE}) and reload k10temp? [y/N] "
-    read -r rev
+    prompt_line_tty "Remove k10temp blacklist installed with this app (${BLACKLIST_FILE}) and reload k10temp? [y/N] " rev
     case "$rev" in
       y | Y | yes | YES) DO_REVERT_BLACKLIST=true ;;
     esac
@@ -151,8 +166,7 @@ prompt_rm_config() {
   local dir="$1"
   [[ -d "$dir" ]] || return 0
   if [[ "$ASSUME_YES" != true ]]; then
-    echo -n "Also delete settings and logs under ${dir}? [y/N] "
-    read -r reply2
+    prompt_line_tty "Also delete settings and logs under ${dir}? [y/N] " reply2
     case "$reply2" in
       y | Y | yes | YES) rm -rf "$dir"; info "Removed ${dir}." ;;
       *) info "Left user data at ${dir}." ;;

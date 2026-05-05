@@ -32,7 +32,7 @@ The Overview tab gives a single-page glanceable dashboard. The **Overclock** tab
 
 The running app **does not** change kernel modules; it looks for an hwmon device named `zenpower` first, then **falls back to `k10temp`** (Tctl/Tdie only, no extra voltages/power/per-CCD detail).
 
-The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt when stdin is a TTY, or pass **`--zenpower`**, or set **`LST_CONFIGURE_ZENPOWER=1`** / **`MONITOR_CONFIGURE_ZENPOWER=1`**). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
+The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt on the controlling terminal — including **`curl … | bash`**, which reads from **`/dev/tty`** — or pass **`--zenpower`**, **`--no-zenpower`**, or set **`LST_CONFIGURE_ZENPOWER=1`** / **`MONITOR_CONFIGURE_ZENPOWER=1`**). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
 
 To set this up yourself: unload `k10temp` (`sudo modprobe -r k10temp`), load `zenpower` (`sudo modprobe zenpower`), then make it persistent—typically **`blacklist k10temp`** in a file under `/etc/modprobe.d/` (see your distro and the [zenpower](https://github.com/ocerman/zenpower) install notes). **Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
 
@@ -64,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/sc
 
 (`MONITOR_GH_REPO`, `MONITOR_INSTALL_DIR`, etc. still work as fallbacks during migration.)
 
-**Optional zenpower / k10temp:** append **`--zenpower`** to the install command (after `owner/repo` if you pass one), or set **`LST_CONFIGURE_ZENPOWER=1`**, to blacklist `k10temp` via sudo and try `modprobe zenpower`. Use **`--no-zenpower`** to force skipping when passing other flags. Piped/curl installs have no TTY and default to **no** unless you set the env var or pass **`bash -s -- --zenpower`**.
+**Optional zenpower / k10temp:** you’ll get a **y/N** question after install when running from a normal terminal (including one-line **`curl … | bash`**). To force behavior without a prompt: **`--zenpower`** or **`--no-zenpower`** (after `owner/repo` if you pass one), or **`LST_CONFIGURE_ZENPOWER=1`** / **`0`**.
 
 This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`, adds `~/.local/bin/linux-sensor-tray`, and registers `**linux-sensor-tray.desktop**`. **Do not move or rename** that AppImage path if you want **auto-updates** to keep working (the updater replaces that file in place).
 
@@ -74,9 +74,9 @@ This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tra
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/uninstall.sh | bash
 ```
 
-Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still accepted). The script can prompt to remove `~/.config/linux-sensor-tray` and, if present, legacy `~/.config/monitor`.
+Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still accepted). Interactive **`curl … | bash`** uses **`/dev/tty`** for prompts (remove app, optional k10temp revert, optional config wipe).
 
-If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With **`--yes`**, that file is **left in place** unless you also set **`LST_UNINSTALL_REVERT_ZENPOWER=1`** (or **`MONITOR_UNINSTALL_REVERT_ZENPOWER=1`**).
+If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With **`--yes`**, that file is **left in place** unless you also set **`LST_UNINSTALL_REVERT_ZENPOWER=1`** (or **`MONITOR_UNINSTALL_REVERT_ZENPOWER=1`**). Without a controlling terminal and without **`--yes`**, uninstall exits with an error instead of guessing.
 
 **Auto-updates:** the packaged app checks your GitHub repo’s latest release after startup (tray → **Check for updates…** also works). Set `LST_SKIP_AUTO_UPDATE=1` to disable (`MONITOR_SKIP_AUTO_UPDATE` still accepted). `GITHUB_TOKEN` on the install script is only needed for higher GitHub API rate limits (optional).
 

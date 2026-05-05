@@ -6,6 +6,11 @@ ok() { printf '\033[0;32m%s\033[0m\n' "$*"; }
 warn() { printf '\033[0;33m%s\033[0m\n' "$*"; }
 err() { printf '\033[0;31m%s\033[0m\n' "$*" >&2; }
 
+# curl … | bash feeds the script on stdin; prompts must use the controlling TTY.
+can_prompt_tty() {
+  [[ -r /dev/tty && -w /dev/tty ]]
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     err "Missing required command: $1"
@@ -150,11 +155,11 @@ want_configure_zenpower() {
     1 | yes | true | on) return 0 ;;
     0 | no | false | off) return 1 ;;
   esac
-  if [[ -t 0 ]]; then
+  if can_prompt_tty; then
     echo
     warn "zenpower needs k10temp blacklisted so it can own the CPU hwmon (see README)."
-    echo -n "Install ${K10TEMP_BLACKLIST_FILE} and load zenpower now (sudo)? [y/N] "
-    read -r zreply
+    printf '%s' "Install ${K10TEMP_BLACKLIST_FILE} and load zenpower now (sudo)? [y/N] " > /dev/tty
+    read -r zreply < /dev/tty
     case "$zreply" in
       y | Y | yes | YES) return 0 ;;
     esac
