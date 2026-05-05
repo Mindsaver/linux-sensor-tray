@@ -80,13 +80,6 @@ export function CpuTab(): JSX.Element {
         <PerCoreBars cores={s.cpu.cores} />
       </Card>
 
-      <Card title="Overclocking" className="col-span-12">
-        <p className="text-sm text-slate-400">
-          Frequency limits, Curve Optimizer (SMU), and related tuning are on the{' '}
-          <span className="text-cyan-300/90">Overclock</span> tab.
-        </p>
-      </Card>
-
       <Card title={`CPU load · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
         <Sparkline
           series={loadSeries}

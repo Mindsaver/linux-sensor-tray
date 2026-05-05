@@ -1,5 +1,8 @@
+import { app, nativeImage } from 'electron'
 import { deflateSync } from 'node:zlib'
 import { Buffer } from 'node:buffer'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 /** Build a 32-bit CRC table for PNG chunks. */
 const CRC_TABLE = (() => {
@@ -29,7 +32,7 @@ function chunk(type: string, data: Buffer): Buffer {
 
 /**
  * Build a small RGBA PNG buffer from a pixel-callback.
- * Used to generate the tray/window icon without bundling binary assets.
+ * Used for the programmatic fallback icon only.
  */
 export function buildPng(
   width: number,
@@ -69,13 +72,42 @@ export function buildPng(
   ])
 }
 
+/** Packaged app: `extraResources` copies `build/icon.png` here. */
+function resolveRasterIconPath(): string | null {
+  try {
+    if (app.isPackaged && process.resourcesPath) {
+      const p = join(process.resourcesPath, 'icon.png')
+      if (existsSync(p)) return p
+    }
+  } catch {
+    // ignore
+  }
+  const devPath = join(process.cwd(), 'build', 'icon.png')
+  if (existsSync(devPath)) return devPath
+  return null
+}
+
 /**
- * Generate the app icon: a rounded teal square with a stylized white "M".
- * Returned as a 64x64 RGBA PNG buffer.
+ * Window / tray icon as PNG bytes at `size`×`size`.
+ * Uses `build/icon.png` (bundled via electron-builder `extraResources`) when present,
+ * otherwise falls back to the built-in teal “M” glyph.
  */
 export function generateAppIcon(size = 64): Buffer {
+  const path = resolveRasterIconPath()
+  if (path) {
+    const img = nativeImage.createFromPath(path)
+    if (!img.isEmpty()) {
+      return img.resize({ width: size, height: size, quality: 'best' }).toPNG()
+    }
+  }
+  return generateFallbackAppIcon(size)
+}
+
+/**
+ * Programmatic fallback: rounded teal square with a stylized white “M”.
+ */
+function generateFallbackAppIcon(size = 64): Buffer {
   const radius = Math.round(size * 0.22)
-  // Rounded-rect mask
   const inside = (x: number, y: number): boolean => {
     const minX = radius
     const maxX = size - 1 - radius
@@ -90,7 +122,6 @@ export function generateAppIcon(size = 64): Buffer {
     return dx * dx + dy * dy <= radius * radius
   }
 
-  // Stylized "M" — 4 vertical-ish strokes forming the letter
   const strokeW = Math.max(2, Math.round(size * 0.09))
   const padX = Math.round(size * 0.2)
   const padY = Math.round(size * 0.22)
@@ -100,7 +131,6 @@ export function generateAppIcon(size = 64): Buffer {
   const right = size - 1 - padX
   const mid = (left + right) >> 1
   const inLine = (x: number, y: number, x1: number, y1: number, x2: number, y2: number): boolean => {
-    // Distance from point to line segment, half-width = strokeW / 2.
     const dx = x2 - x1
     const dy = y2 - y1
     const len2 = dx * dx + dy * dy
@@ -120,7 +150,6 @@ export function generateAppIcon(size = 64): Buffer {
       inLine(x, y, mid, bot * 0.6, right, top) ||
       inLine(x, y, right, top, right, bot)
     if (onM) return [240, 245, 250, 255]
-    // teal gradient background
     const t = y / size
     const r = Math.round(20 + 10 * t)
     const g = Math.round(150 + 30 * (1 - t))

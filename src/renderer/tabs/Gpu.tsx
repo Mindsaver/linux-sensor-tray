@@ -80,13 +80,6 @@ export function GpuTab(): JSX.Element {
         </div>
       </Card>
 
-      <Card title="Overclocking" className="col-span-12">
-        <p className="text-sm text-slate-400">
-          DPM level, PPT caps, and <span className="mono text-slate-300">pp_od_clk_voltage</span> tables are on the{' '}
-          <span className="text-cyan-300/90">Overclock</span> tab.
-        </p>
-      </Card>
-
       {s.gpu.powerCap != null && s.gpu.power != null && (
         <Card title="Power & fan" className="col-span-12">
           <div className="space-y-3">

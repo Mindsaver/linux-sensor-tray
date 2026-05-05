@@ -23,15 +23,15 @@ The **Storage** tab in the app shows **live NVMe drive temperatures** from sysfs
 ### Disk logging
 
 - **Default:** logging is **off**. Turn on **Log samples to disk** in **Settings** to append data.
-- **Format:** one JSON object per second per line (**JSON Lines**). Files are named **`linux-sensor-tray-YYYY-MM-DD.jsonl`** (older installs may emit **`monitor-*.jsonl`**).
-- **Where files go:** by default **`sensor_logs`** under Electron **user data** — on Linux that is usually **`~/.config/linux-sensor-tray/sensor_logs/`**. You can **Choose folder…** in Settings for a custom directory; **Use default** restores the path above.
-- **Schema:** current lines are **schema 3**: compact chart fields plus **`mem`**, **`cpu`**, **`cpuTuning`**, **`gpu`**, **`mainboard`**, and **`storage`** (same idea as in-app detail; very large AMDGPU sysfs blocks are omitted). Older logs may be **schema 2** and can include a legacy **`smu`** block. Expect about **one line per second** while logging is enabled — size grows with how long you leave it on.
+- **Format:** one JSON object per second per line (**JSON Lines**). Files are named `**linux-sensor-tray-YYYY-MM-DD.jsonl`** (older installs may emit `**monitor-*.jsonl`**).
+- **Where files go:** by default `**sensor_logs`** under Electron **user data** — on Linux that is usually `**~/.config/linux-sensor-tray/sensor_logs/`**. You can **Choose folder…** in Settings for a custom directory; **Use default** restores the path above.
+- **Schema:** current lines are **schema 3**: compact chart fields plus `**mem`**, `**cpu`**, `**cpuTuning**`, `**gpu**`, `**mainboard**`, and `**storage**` (same idea as in-app detail; very large AMDGPU sysfs blocks are omitted). Older logs may be schema 2 and can include a legacy `**smu**` block. Expect about **one line per second** while logging is enabled — size grows with how long you leave it on.
 
 ### `history-viewer.html`
 
-On startup the app writes **`history-viewer.html`** into the **default** log directory and, if different, your **custom** log directory — always next to the `.jsonl` files you care about.
+On startup the app writes `**history-viewer.html`** into the **default** log directory and, if different, your **custom** log directory — always next to the `.jsonl` files you care about.
 
-Open that file in a normal browser (from **Settings** use **Open in file manager**, then open the HTML file). It is **fully offline** (no web server): **drag and drop** `.jsonl` files onto the page (or use the file picker), view synced charts, and use **wheel zoom** and **drag-pan** on the plots. For scripting or spreadsheets, consume the same `.jsonl` files with **`jq`**, Python, or similar tools.
+Open that file in a normal browser (from **Settings** use **Open in file manager**, then open the HTML file). It is **fully offline** (no web server): **drag and drop** `.jsonl` files onto the page (or use the file picker), view synced charts, and use **wheel zoom** and **drag-pan** on the plots. For scripting or spreadsheets, consume the same `.jsonl` files with `**jq`**, Python, or similar tools.
 
 ## Requirements
 
@@ -45,13 +45,13 @@ Open that file in a normal browser (from **Settings** use **Open in file manager
 
 ### zenpower and k10temp
 
-`zenpower` and the in-kernel `k10temp` driver both use the same AMD CPU monitoring hardware on Zen systems. Only one of them can bind to it at a time, and **`k10temp` usually loads at boot and wins**, so `zenpower` may never appear until you change module loading.
+`zenpower` and the in-kernel `k10temp` driver both use the same AMD CPU monitoring hardware on Zen systems. Only one of them can bind to it at a time, and `**k10temp` usually loads at boot and wins**, so `zenpower` may never appear until you change module loading.
 
 The running app **does not** change kernel modules; it looks for an hwmon device named `zenpower` first, then **falls back to `k10temp`** (Tctl/Tdie only, no extra voltages/power/per-CCD detail).
 
-The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt on the controlling terminal — including **`curl … | bash`**, which reads from **`/dev/tty`** — or pass **`--zenpower`**, **`--no-zenpower`**, or set **`LST_CONFIGURE_ZENPOWER=1`** / **`MONITOR_CONFIGURE_ZENPOWER=1`**). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
+The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt on the controlling terminal — including `**curl … | bash`**, which reads from `**/dev/tty`** — or pass `**--zenpower**`, `**--no-zenpower**`, or set `**LST_CONFIGURE_ZENPOWER=1**` / `**MONITOR_CONFIGURE_ZENPOWER=1**`). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
 
-To set this up yourself: unload `k10temp` (`sudo modprobe -r k10temp`), load `zenpower` (`sudo modprobe zenpower`), then make it persistent—typically **`blacklist k10temp`** in a file under `/etc/modprobe.d/` (see your distro and the [zenpower](https://github.com/ocerman/zenpower) install notes). **Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
+To set this up yourself: unload `k10temp` (`sudo modprobe -r k10temp`), load `zenpower` (`sudo modprobe zenpower`), then make it persistent—typically `**blacklist k10temp**` in a file under `/etc/modprobe.d/` (see your distro and the [zenpower](https://github.com/ocerman/zenpower) install notes). **Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
 
 ## Run from source
 
@@ -81,7 +81,7 @@ curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/sc
 
 (`MONITOR_GH_REPO`, `MONITOR_INSTALL_DIR`, etc. still work as fallbacks during migration.)
 
-**Optional zenpower / k10temp:** you’ll get a **y/N** question after install when running from a normal terminal (including one-line **`curl … | bash`**). To force behavior without a prompt: **`--zenpower`** or **`--no-zenpower`** (after `owner/repo` if you pass one), or **`LST_CONFIGURE_ZENPOWER=1`** / **`0`**.
+**Optional zenpower / k10temp:** you’ll get a **y/N** question after install when running from a normal terminal (including one-line `**curl … | bash`**). To force behavior without a prompt: `**--zenpower`** or `**--no-zenpower**` (after `owner/repo` if you pass one), or `**LST_CONFIGURE_ZENPOWER=1**` / `**0**`.
 
 This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`, adds `~/.local/bin/linux-sensor-tray`, and registers `**linux-sensor-tray.desktop**`. **Do not move or rename** that AppImage path if you want **auto-updates** to keep working (the updater replaces that file in place).
 
@@ -91,13 +91,15 @@ This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tra
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/uninstall.sh | bash
 ```
 
-Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still accepted). Interactive **`curl … | bash`** uses **`/dev/tty`** for prompts (remove app, optional k10temp revert, optional config wipe).
+Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still accepted). Interactive `**curl … | bash**` uses `**/dev/tty**` for prompts (remove app, optional k10temp revert, optional config wipe).
 
-If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With **`--yes`**, that file is **left in place** unless you also set **`LST_UNINSTALL_REVERT_ZENPOWER=1`** (or **`MONITOR_UNINSTALL_REVERT_ZENPOWER=1`**). Without a controlling terminal and without **`--yes`**, uninstall exits with an error instead of guessing.
+If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With `**--yes`**, that file is left in place unless you also set `**LST_UNINSTALL_REVERT_ZENPOWER=1`** (or `**MONITOR_UNINSTALL_REVERT_ZENPOWER=1**`). Without a controlling terminal and without `**--yes**`, uninstall exits with an error instead of guessing.
 
 **Auto-updates:** the packaged app checks your GitHub repo’s latest release after startup (tray → **Check for updates…** also works). Set `LST_SKIP_AUTO_UPDATE=1` to disable (`MONITOR_SKIP_AUTO_UPDATE` still accepted). `GITHUB_TOKEN` on the install script is only needed for higher GitHub API rate limits (optional).
 
 ## Build a packaged app (maintainers)
+
+**Icon:** raster logo lives at **`build/icon.png`** (512×512 PNG). electron-builder uses it for Linux launcher/AppImage metadata via **`directories.buildResources`**, and the same file is shipped next to the app as **`icon.png`** (`extraResources`) so the window and tray load it at runtime. If that file is missing, the app falls back to a built-in teal icon.
 
 ```bash
 npm run build
@@ -116,8 +118,8 @@ Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version
 ## Notes / troubleshooting
 
 - If a value shows `—` it means the corresponding sysfs file isn't exposed by your kernel/driver/hardware. The app degrades gracefully.
-- The polling rate is 1 Hz. **Settings** tab: extend the in-memory ring buffer up to **7 days** (~~604k samples). **Chart time range** (what the sparklines show) is a **dropdown** in the top bar. Defaults are **6 h** buffer and **1 min** charts; settings are saved under Electron `userData` as `**linux-sensor-tray-settings.json`** (on first launch, `**monitor-settings.json**` under the old `~~/.config/monitor` path is imported automatically if present).
-- **Disk logging and offline charts:** see **[History viewer and disk logging](#history-viewer-and-disk-logging)** (`.jsonl` layout, folders, and **`history-viewer.html`**).
+- The polling rate is 1 Hz. **Settings** tab: extend the in-memory ring buffer up to **7 days** (~~604k samples). **Chart time range** (what the sparklines show) is a **dropdown** in the top bar. Defaults are **6 h** buffer and **1 min** charts; settings are saved under Electron `userData` as `**linux-sensor-tray-settings.json`** (on first launch, `**monitor-settings.json`** under the old `~~/.config/monitor` path is imported automatically if present).
+- **Disk logging and offline charts:** see **[History viewer and disk logging](#history-viewer-and-disk-logging)** (`.jsonl` layout, folders, and `**history-viewer.html`**).
 - All sensor reads happen in the Electron main process; the renderer only receives a typed `SensorSnapshot` over IPC. The preload script is the only bridge (`contextIsolation: true`, `nodeIntegration: false`).
 - **AppImage / FUSE:** If the AppImage fails to run, install `fuse2` or `libfuse` (varies by distro) and try again.
 
