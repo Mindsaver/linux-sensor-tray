@@ -4,6 +4,8 @@ Tray-first Electron app for live CPU, GPU, mainboard, and storage stats on Linux
 
 Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray).
 
+![Linux Sensor Tray main window](docs/Screenshot.png)
+
 ## Quick install (AppImage)
 
 ```bash
@@ -12,6 +14,11 @@ curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/sc
 
 - Installs to: `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`
 - Adds command: `~/.local/bin/linux-sensor-tray`
+- The installer will show what it changes and ask for confirmation. For non-interactive installs, pass `--yes`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --yes Mindsaver/linux-sensor-tray
+```
 
 ### Uninstall
 

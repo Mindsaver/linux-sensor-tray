@@ -22,10 +22,12 @@ K10TEMP_BLACKLIST_FILE="/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf
 
 ZENPOWER_CLI=""
 REPO_POS=""
+ASSUME_YES=false
 for arg in "$@"; do
   case "$arg" in
     --zenpower) ZENPOWER_CLI=yes ;;
     --no-zenpower) ZENPOWER_CLI=no ;;
+    -y | --yes) ASSUME_YES=true ;;
     -*)
       err "Unknown option: $arg"
       exit 1
@@ -33,6 +35,9 @@ for arg in "$@"; do
     *) REPO_POS="$arg" ;;
   esac
 done
+if [[ -n "${LST_INSTALL_YES:-}" || -n "${MONITOR_INSTALL_YES:-}" ]]; then
+  ASSUME_YES=true
+fi
 
 REPO="${LST_GH_REPO:-${MONITOR_GH_REPO:-}}"
 if [[ -z "$REPO" && -n "${REPO_POS}" ]]; then REPO="$REPO_POS"; fi
@@ -50,6 +55,29 @@ DESKTOP_FILE="${DESKTOP_DIR}/linux-sensor-tray.desktop"
 STABLE_APPIMAGE="${INSTALL_DIR}/linux-sensor-tray.AppImage"
 PARTIAL="${INSTALL_DIR}/linux-sensor-tray.AppImage.partial"
 MANIFEST="${INSTALL_DIR}/install-manifest.json"
+
+if [[ "$ASSUME_YES" != true ]]; then
+  if can_prompt_tty; then
+    echo
+    warn "You are about to run an installer script from the internet."
+    info "This will:"
+    info "  - Download an AppImage into: ${STABLE_APPIMAGE}"
+    info "  - Create a symlink:          ${HOME}/.local/bin/linux-sensor-tray"
+    info "  - Create a desktop entry:    ${DESKTOP_FILE}"
+    warn "Review the script first if you're unsure: https://github.com/${REPO}/blob/main/scripts/install.sh"
+    echo
+    printf '%s' "Proceed with install? [y/N] " > /dev/tty
+    read -r reply < /dev/tty
+    case "$reply" in
+      y | Y | yes | YES) ;;
+      *) info "Cancelled."; exit 0 ;;
+    esac
+  else
+    err "No controlling terminal (piped install cannot read answers from stdin)."
+    err "Use non-interactive: --yes / LST_INSTALL_YES=1"
+    exit 1
+  fi
+fi
 
 MACHINE="$(uname -m)"
 TMP_JSON="$(mktemp)"

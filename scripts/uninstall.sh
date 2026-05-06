@@ -168,22 +168,43 @@ if [[ "$DO_REMOVE_POLKIT_RULE" == true ]]; then
 fi
 
 rm_paths() {
-  python3 - <<'PY' "$1"
+  XDG_DATA_HOME="$XDG_DATA_HOME" HOME="$HOME" python3 - <<'PY' "$1"
 import json, os, sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
+
+manifest_path = sys.argv[1]
+with open(manifest_path, encoding="utf-8") as f:
     m = json.load(f)
-for key in ("bin_symlink", "desktop", "appimage"):
-    p = m.get(key)
+
+home = os.environ.get("HOME") or ""
+xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+
+expected = {
+    "bin_symlink": os.path.join(home, ".local", "bin", "linux-sensor-tray"),
+    "desktop": os.path.join(xdg_data, "applications", "linux-sensor-tray.desktop"),
+    "appimage": os.path.join(xdg_data, "linux-sensor-tray", "linux-sensor-tray.AppImage"),
+}
+
+def safe_remove(label: str) -> None:
+    p = m.get(label) or ""
+    exp = expected[label]
+    # Refuse to delete if the manifest was tampered or points elsewhere.
+    if os.path.normpath(p) != os.path.normpath(exp):
+        print("refusing", label, p, "(expected", exp + ")")
+        return
     if p and os.path.lexists(p):
         os.remove(p)
         print("removed", p)
-inst = os.path.dirname(path)
+
+for key in ("bin_symlink", "desktop", "appimage"):
+    safe_remove(key)
+
+inst = os.path.dirname(manifest_path)
 try:
-    os.remove(path)
-    print("removed", path)
+    os.remove(manifest_path)
+    print("removed", manifest_path)
 except OSError:
     pass
+
 try:
     if os.path.isdir(inst) and not os.listdir(inst):
         os.rmdir(inst)
