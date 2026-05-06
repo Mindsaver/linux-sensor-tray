@@ -203,7 +203,7 @@ Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still
 
 If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With `**--yes`**, that file is left in place unless you also set `**LST_UNINSTALL_REVERT_ZENPOWER=1`** (or `**MONITOR_UNINSTALL_REVERT_ZENPOWER=1**`). Without a controlling terminal and without `**--yes**`, uninstall exits with an error instead of guessing.
 
-**Auto-updates:** the packaged app checks your GitHub repo’s latest release after startup (tray → **Check for updates…** also works). Set `LST_SKIP_AUTO_UPDATE=1` to disable (`MONITOR_SKIP_AUTO_UPDATE` still accepted). `GITHUB_TOKEN` on the install script is only needed for higher GitHub API rate limits (optional).
+**Auto-updates:** the packaged app checks your GitHub repo’s latest release after startup (tray → **Check for updates…** also works). If an update exists, you get a prompt before anything is downloaded (**Download** / **Don't update**); after download, you choose **Restart now** or **Later**. Set `LST_SKIP_AUTO_UPDATE=1` to disable (`MONITOR_SKIP_AUTO_UPDATE` still accepted). `GITHUB_TOKEN` on the install script is only needed for higher GitHub API rate limits (optional).
 
 ## Build a packaged app (maintainers)
 
