@@ -90,4 +90,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
         run: |
-          gh release upload "$RELEASE_VERSION" *.AppImage.sha256 --clobber
+          # `electron-builder` creates releases/tags like `v0.1.0`. When this workflow
+          # is triggered manually, the input may be `0.1.0`, so normalize here.
+          RELEASE_TAG="v${RELEASE_VERSION#v}"
+          gh release upload "$RELEASE_TAG" *.AppImage.sha256 --clobber
