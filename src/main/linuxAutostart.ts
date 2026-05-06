@@ -54,7 +54,9 @@ export async function syncLinuxAutostart(want: boolean): Promise<void> {
     return
   }
 
-  const exe = process.execPath
+  // In AppImage builds, `process.execPath` points to the ephemeral mount path
+  // (/tmp/.mount_*). Use APPIMAGE when available so autostart survives reboot.
+  const exe = process.env.APPIMAGE && process.env.APPIMAGE.length > 0 ? process.env.APPIMAGE : process.execPath
   await mkdir(autostartDir(), { recursive: true })
   const execLine = quoteDesktopExec(exe)
   await writeFile(
@@ -65,6 +67,7 @@ Version=1.0
 Name=Linux Sensor Tray
 Comment=Hardware sensor tray monitor
 Exec=${execLine}
+TryExec=${execLine}
 Terminal=false
 Categories=Utility;System;
 StartupWMClass=linux-sensor-tray
