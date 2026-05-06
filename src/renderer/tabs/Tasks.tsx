@@ -119,6 +119,29 @@ export function TasksTab(): JSX.Element {
 
   const q = query.trim().toLowerCase()
 
+  const lastAt = data?.collectedAt
+  const summary = data?.summary
+
+  const mem = latest?.memory ?? null
+  const memUsed = mem?.usedKB ?? 0
+  const memTotal = mem?.totalKB ?? 0
+  const memAvail = mem?.availableKB ?? 0
+  const swapUsed = mem?.swapUsedKB ?? 0
+  const swapTotal = mem?.swapTotalKB ?? 0
+
+  const memTotalBytes = memTotal * 1024
+  const memUsedBytes = memUsed * 1024
+  const swapTotalBytes = swapTotal * 1024
+  const swapUsedBytes = swapUsed * 1024
+
+  const memUsedPct = memTotal > 0 ? (memUsed / memTotal) * 100 : null
+  const swapUsedPct = swapTotal > 0 ? (swapUsed / swapTotal) * 100 : null
+
+  const memBreak = summary?.mem
+  const swapBreak = summary?.swap
+
+  const memTotalForPct = memBreak?.totalBytes ?? (memTotalBytes || 0)
+
   const rows = useMemo(() => {
     const list = data?.list ?? []
     const filtered = q ? list.filter((r) => rowMatches(r, q)) : list
@@ -162,36 +185,13 @@ export function TasksTab(): JSX.Element {
       return a.pid - b.pid
     })
     return sorted
-  }, [data, q, sortKey, sortDir])
+  }, [data, q, sortKey, sortDir, memTotalForPct])
 
   useEffect(() => {
     if (selectedPid != null) return
     if (rows.length === 0) return
     setSelectedPid(rows[0]!.pid)
   }, [rows, selectedPid])
-
-  const lastAt = data?.collectedAt
-  const summary = data?.summary
-
-  const mem = latest?.memory ?? null
-  const memUsed = mem?.usedKB ?? 0
-  const memTotal = mem?.totalKB ?? 0
-  const memAvail = mem?.availableKB ?? 0
-  const swapUsed = mem?.swapUsedKB ?? 0
-  const swapTotal = mem?.swapTotalKB ?? 0
-
-  const memTotalBytes = memTotal * 1024
-  const memUsedBytes = memUsed * 1024
-  const swapTotalBytes = swapTotal * 1024
-  const swapUsedBytes = swapUsed * 1024
-
-  const memUsedPct = memTotal > 0 ? (memUsed / memTotal) * 100 : null
-  const swapUsedPct = swapTotal > 0 ? (swapUsed / swapTotal) * 100 : null
-
-  const memBreak = summary?.mem
-  const swapBreak = summary?.swap
-
-  const memTotalForPct = memBreak?.totalBytes ?? (memTotalBytes || 0)
 
   const fmtTime = (sec: number | null | undefined): string => {
     if (sec == null || !Number.isFinite(sec) || sec < 0) return '—'
