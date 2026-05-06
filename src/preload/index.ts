@@ -65,6 +65,13 @@ const api = {
   },
   uninstallPolkitRule(): Promise<PolkitRuleStatus> {
     return ipcRenderer.invoke('polkit:uninstallRule') as Promise<PolkitRuleStatus>
+  },
+  /**
+   * Get the real app icon (from packaged `icon.png` / dev `build/icon.png`) as a PNG data URL.
+   * Safe for use in the renderer UI and favicon.
+   */
+  getAppIconDataUrl(size?: number): Promise<string> {
+    return ipcRenderer.invoke('app:getIconDataUrl', size) as Promise<string>
   }
 }
 

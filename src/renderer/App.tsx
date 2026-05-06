@@ -35,8 +35,17 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<TabId>('overview')
   const latest = useSensorTray((s) => s.latest)
   const [preloadOk] = useState(() => typeof window !== 'undefined' && !!window.api)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
 
   useEffect(() => startSensorBridge(), [])
+  useEffect(() => {
+    if (!preloadOk) return
+    void window.api.getAppIconDataUrl(64).then((url: string) => {
+      setLogoUrl(url)
+      const el = document.querySelector<HTMLLinkElement>("link[rel~='icon']")
+      if (el) el.href = url
+    })
+  }, [preloadOk])
 
   const headerRight = latest
     ? `${new Date(latest.timestamp).toLocaleTimeString()}`
@@ -46,25 +55,35 @@ export default function App(): JSX.Element {
     <div className="flex min-h-full flex-1 flex-col">
       <header className="px-5 py-3 border-b border-slate-800/80 flex flex-wrap items-center gap-x-4 gap-y-2 bg-slate-950/60 backdrop-blur sticky top-0 z-10">
         <div className="flex items-center gap-2.5 shrink-0">
-          <div
-            className="h-7 w-7 rounded-lg shrink-0 bg-slate-900/60 ring-1 ring-slate-700/70 shadow-sm shadow-black/30 grid place-items-center"
-            aria-hidden
-          >
-            <svg
-              viewBox="0 0 64 64"
-              className="h-5 w-5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt=""
+              width={28}
+              height={28}
+              decoding="async"
+              draggable={false}
+              className="h-7 w-7 rounded-lg object-contain shrink-0 bg-slate-900/60 ring-1 ring-slate-700/70 shadow-sm shadow-black/30"
+              aria-hidden
+            />
+          ) : (
+            <div
+              className="h-7 w-7 rounded-lg shrink-0 bg-slate-900/60 ring-1 ring-slate-700/70 shadow-sm shadow-black/30 grid place-items-center"
+              aria-hidden
             >
-              <path
-                d="M14 48V18l18 22 18-22v30"
-                className="text-slate-100"
-              />
-            </svg>
-          </div>
+              <svg
+                viewBox="0 0 64 64"
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 48V18l18 22 18-22v30" className="text-slate-100" />
+              </svg>
+            </div>
+          )}
           <h1 className="text-base font-semibold tracking-wide text-slate-100">Linux Sensor Tray</h1>
         </div>
         <nav className="flex gap-1 flex-wrap min-w-0">

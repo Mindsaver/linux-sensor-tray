@@ -228,7 +228,7 @@ export function TasksTab(): JSX.Element {
   }
 
   return (
-    <div className="space-y-4 max-w-6xl">
+    <div className="space-y-4 w-full max-w-none">
       <Card
       >
         <div className="flex flex-wrap items-center gap-2">

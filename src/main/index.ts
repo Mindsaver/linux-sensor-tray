@@ -38,6 +38,11 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const POLL_MS = 1000
 
+function appIconDataUrl(size = 64): string {
+  const png = generateAppIcon(size)
+  return `data:image/png;base64,${png.toString('base64')}`
+}
+
 function resolvePreload(): string {
   const candidates = [
     join(__dirname, '../preload/index.mjs'),
@@ -232,6 +237,7 @@ app.whenReady().then(async () => {
   await syncLinuxAutostart(getSettingsSnapshot().openAtLogin)
   await deployHistoryViewer()
 
+  ipcMain.handle('app:getIconDataUrl', (_e, size?: number) => appIconDataUrl(size ?? 64))
   ipcMain.handle('sensors:get', () => collectSnapshot())
   ipcMain.handle('tasks:get', () => collectTaskMonitorSnapshot())
   ipcMain.handle('system:getInfo', () => collectSystemInfo())
