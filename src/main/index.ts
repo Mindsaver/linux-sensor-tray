@@ -58,6 +58,21 @@ let trayUpdateCheck: (() => void) | undefined
 /** Last snapshot timestamp (ms) when a disk log line was written; null until first write after enable. */
 let lastDiskLogAtMs: number | null = null
 
+// Single-instance app (tray-first): if the user launches again, focus the existing window.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // This can fire before `whenReady` creates a window; in that case just
+    // let the primary instance continue starting up.
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
+    mainWindow.focus()
+  })
+}
+
 function createWindow(): BrowserWindow {
   const icon = nativeImage.createFromBuffer(generateAppIcon(128))
   const win = new BrowserWindow({
