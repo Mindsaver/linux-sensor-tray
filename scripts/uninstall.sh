@@ -197,6 +197,7 @@ expected = {
     "bin_symlink": os.path.join(home, ".local", "bin", "linux-sensor-tray"),
     "desktop": os.path.join(xdg_data, "applications", "linux-sensor-tray.desktop"),
     "appimage": os.path.join(xdg_data, "linux-sensor-tray", "linux-sensor-tray.AppImage"),
+    "icon": os.path.join(xdg_data, "icons", "hicolor", "512x512", "apps", "linux-sensor-tray.png"),
 }
 
 def safe_remove(label: str) -> None:
@@ -210,7 +211,7 @@ def safe_remove(label: str) -> None:
         os.remove(p)
         print("removed", p)
 
-for key in ("bin_symlink", "desktop", "appimage"):
+for key in ("bin_symlink", "desktop", "appimage", "icon"):
     safe_remove(key)
 
 inst = os.path.dirname(manifest_path)

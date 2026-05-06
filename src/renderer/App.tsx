@@ -8,9 +8,10 @@ import { StorageTab } from './tabs/Storage'
 import { OverclockTab } from './tabs/Overclock'
 import { SettingsTab } from './tabs/Settings'
 import { SystemTab } from './tabs/System'
+import { TasksTab } from './tabs/Tasks'
 import { ChartWindowControl } from './components/ChartWindowControl'
 
-type TabId = 'overview' | 'cpu' | 'gpu' | 'overclock' | 'mobo' | 'storage' | 'system' | 'settings'
+type TabId = 'overview' | 'cpu' | 'gpu' | 'tasks' | 'overclock' | 'mobo' | 'storage' | 'system' | 'settings'
 
 const TABS: { id: Exclude<TabId, 'settings'>; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -19,7 +20,8 @@ const TABS: { id: Exclude<TabId, 'settings'>; label: string }[] = [
   { id: 'mobo', label: 'Mainboard' },
   { id: 'storage', label: 'Storage' },
   { id: 'system', label: 'System info' },
-  { id: 'overclock', label: 'OC' }
+  { id: 'overclock', label: 'OC' },
+  { id: 'tasks', label: 'Tasks' }
 ]
 
 function tabBtnClass(active: boolean): string {
@@ -113,6 +115,7 @@ export default function App(): JSX.Element {
         {tab === 'overview' && <Overview />}
         {tab === 'cpu' && <CpuTab />}
         {tab === 'gpu' && <GpuTab />}
+        {tab === 'tasks' && <TasksTab />}
         {tab === 'overclock' && <OverclockTab />}
         {tab === 'mobo' && <MainboardTab />}
         {tab === 'storage' && <StorageTab />}

@@ -59,6 +59,9 @@ DESKTOP_FILE="${DESKTOP_DIR}/linux-sensor-tray.desktop"
 STABLE_APPIMAGE="${INSTALL_DIR}/linux-sensor-tray.AppImage"
 PARTIAL="${INSTALL_DIR}/linux-sensor-tray.AppImage.partial"
 MANIFEST="${INSTALL_DIR}/install-manifest.json"
+ICON_NAME="linux-sensor-tray"
+ICON_DIR="${XDG_DATA_HOME}/icons/hicolor/512x512/apps"
+ICON_FILE="${ICON_DIR}/${ICON_NAME}.png"
 
 normalize_path() {
   python3 - <<'PY' "$1"
@@ -215,6 +218,21 @@ curl -fSL --progress-bar -o "$PARTIAL" "$DOWNLOAD_URL"
 chmod +x "$PARTIAL"
 mv -f "$PARTIAL" "$STABLE_APPIMAGE"
 
+# Install an icon into the user's icon theme so the desktop menu and window
+# title bar can resolve it reliably (some desktops do not use AppImage metadata).
+mkdir -p "$ICON_DIR"
+tmp_extract="$(mktemp -d)"
+cleanup_extract() { rm -rf "$tmp_extract"; }
+trap 'rm -f "$TMP_JSON"; cleanup_extract' EXIT
+(
+  cd "$tmp_extract"
+  "${STABLE_APPIMAGE}" --appimage-extract >/dev/null 2>&1 || exit 0
+  embedded_icon="squashfs-root/usr/share/icons/hicolor/512x512/apps/${ICON_NAME}.png"
+  if [[ -f "$embedded_icon" ]]; then
+    cp -f "$embedded_icon" "$ICON_FILE"
+  fi
+)
+
 BIN_LINK="${LOCAL_BIN}/linux-sensor-tray"
 if [[ -e "$BIN_LINK" || -L "$BIN_LINK" ]]; then
   rm -f "$BIN_LINK"
@@ -226,6 +244,7 @@ cat >"$DESKTOP_FILE" <<EOF
 Name=Linux Sensor Tray
 Comment=Linux hardware sensor tray monitor
 Exec=${STABLE_APPIMAGE} %U
+Icon=${ICON_NAME}
 Terminal=false
 Type=Application
 Categories=Utility;System;
@@ -289,7 +308,7 @@ if is_amd_cpu && want_configure_zenpower; then
   configure_zenpower_blacklist || true
 fi
 
-export REPO STABLE_APPIMAGE DESKTOP_FILE BIN_LINK MACHINE LST_K10TEMP_BLACKLIST K10TEMP_BLACKLIST_FILE
+export REPO STABLE_APPIMAGE DESKTOP_FILE BIN_LINK MACHINE LST_K10TEMP_BLACKLIST K10TEMP_BLACKLIST_FILE ICON_FILE
 rm -f "$MANIFEST"
 python3 - <<'PY' >"$MANIFEST"
 import json, os
@@ -300,6 +319,7 @@ data = {
     "appimage": os.environ["STABLE_APPIMAGE"],
     "desktop": os.environ["DESKTOP_FILE"],
     "bin_symlink": os.environ["BIN_LINK"],
+    "icon": os.environ.get("ICON_FILE", ""),
     "machine": os.environ.get("MACHINE", ""),
 }
 if os.environ.get("LST_K10TEMP_BLACKLIST"):

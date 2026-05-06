@@ -369,6 +369,64 @@ export type SystemInfoSnapshot = {
   warnings: string[]
 }
 
+export type TaskProcessRow = {
+  pid: number
+  ppid?: number
+  /** “Name” column (best-effort; may be command basename depending on source). */
+  name: string
+  /** CPU usage percent (best-effort), typically 0-100. */
+  cpuPct: number | null
+  /** Resident memory bytes (best-effort). */
+  memRssBytes: number | null
+  /** Virtual memory size bytes (best-effort). */
+  memVszBytes?: number | null
+  user: string | null
+  state: string | null
+  nice?: number | null
+  priority?: number | null
+  /** CPU time (seconds), best-effort. */
+  cpuTimeSec?: number | null
+  command: string | null
+}
+
+export type TaskMonitorSummary = {
+  /** Seconds since boot. */
+  uptimeSec: number
+  /** 1, 5, 15 minute load average. */
+  loadAvg: [number, number, number]
+  /** Total tasks on the system (best-effort). */
+  taskCount: number
+  /** Total threads across tasks (best-effort). */
+  threadCount?: number
+  /** Number of running tasks (best-effort). */
+  runningCount?: number
+  /** Number of kernel threads (best-effort). */
+  kernelThreadCount?: number
+  /** Memory breakdown (bytes), best-effort. */
+  mem?: {
+    totalBytes: number
+    usedBytes: number
+    freeBytes: number
+    /** Buffers + cache combined (Linux). */
+    buffCacheBytes?: number
+    buffersBytes?: number
+    cachedBytes?: number
+  }
+  /** Swap breakdown (bytes), best-effort. */
+  swap?: {
+    totalBytes: number
+    usedBytes: number
+    freeBytes: number
+  }
+}
+
+export type TaskMonitorSnapshot = {
+  collectedAt: number
+  summary: TaskMonitorSummary
+  list: TaskProcessRow[]
+  warnings?: string[]
+}
+
 /** Polkit rules body (shown verbatim in Settings). */
 export const PRIVILEGED_PROBE_POLKIT_RULES = `polkit.addRule(function(action, subject) {
   if (action.id !== "org.freedesktop.policykit.exec") return;

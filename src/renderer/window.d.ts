@@ -2,6 +2,7 @@ import type {
   AppSettings,
   AppSettingsResolved,
   SensorSnapshot,
+  TaskMonitorSnapshot,
   SystemInfoSnapshot
 } from '@shared/types'
 
@@ -10,6 +11,7 @@ declare global {
     api: {
       onSnapshot: (cb: (snap: SensorSnapshot) => void) => () => void
       getSnapshot: () => Promise<SensorSnapshot>
+      getTasks: () => Promise<TaskMonitorSnapshot>
       getSettings: () => Promise<AppSettingsResolved>
       setSettings: (partial: Partial<AppSettings>) => Promise<AppSettingsResolved>
       openHistoryLogFolder: () => Promise<void>

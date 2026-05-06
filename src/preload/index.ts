@@ -4,6 +4,7 @@ import {
   type AppSettings,
   type AppSettingsResolved,
   type SensorSnapshot,
+  type TaskMonitorSnapshot,
   type SystemInfoSnapshot
 } from '@shared/types'
 
@@ -30,6 +31,9 @@ const api = {
   /** Request a single snapshot immediately. */
   getSnapshot(): Promise<SensorSnapshot> {
     return ipcRenderer.invoke('sensors:get') as Promise<SensorSnapshot>
+  },
+  getTasks(): Promise<TaskMonitorSnapshot> {
+    return ipcRenderer.invoke('tasks:get') as Promise<TaskMonitorSnapshot>
   },
   getSettings(): Promise<AppSettingsResolved> {
     return ipcRenderer.invoke('settings:get') as Promise<AppSettingsResolved>

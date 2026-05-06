@@ -27,6 +27,7 @@ import { skipAutoUpdate } from './runtimeEnv'
 import { linuxAutostartSupported, syncLinuxAutostart } from './linuxAutostart'
 import { collectSystemInfo } from './systemInfo'
 import { getPolkitRuleStatus, installPolkitRule, uninstallPolkitRule } from './linuxPolkitRule'
+import { collectTaskMonitorSnapshot } from './tasks'
 import {
   IPC_CHANNEL_SNAPSHOT,
   type AppSettings,
@@ -217,6 +218,7 @@ app.whenReady().then(async () => {
   await deployHistoryViewer()
 
   ipcMain.handle('sensors:get', () => collectSnapshot())
+  ipcMain.handle('tasks:get', () => collectTaskMonitorSnapshot())
   ipcMain.handle('system:getInfo', () => collectSystemInfo())
   ipcMain.handle('system:enrichWithRoot', () => collectSystemInfo({ force: 'privileged' }))
   ipcMain.handle('polkit:ruleStatus', () => getPolkitRuleStatus())
