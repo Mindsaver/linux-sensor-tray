@@ -8,6 +8,7 @@ If you believe you have found a security issue, please do **not** open a public 
 - Or contact the maintainer via GitHub profile: `Mindsaver`.
 
 Include:
+
 - What you found and why it is impactful
 - Reproduction steps (ideally minimal)
 - Your OS/distro, kernel, and app version
@@ -28,4 +29,3 @@ These steps reduce the risk of a compromised release or malicious changes landin
 - **Installer safety**:
   - Keep install scripts safe-by-default (no silent `sudo`).
   - Keep install/uninstall scoped to user directories unless explicitly confirmed.
-
