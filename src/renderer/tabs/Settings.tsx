@@ -77,7 +77,7 @@ export function SettingsTab(): JSX.Element {
   }
 
   return (
-    <div className="grid grid-cols-12 gap-4 max-w-4xl">
+    <div className="grid grid-cols-12 gap-4 w-full max-w-none">
       <Card
         title="History buffer"
         subtitle="In-memory ring (~1 sample/s). How long charts can span is set in the top bar (Charts)."
