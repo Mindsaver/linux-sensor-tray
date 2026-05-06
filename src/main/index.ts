@@ -210,10 +210,38 @@ function quitApp(): void {
   stopPolling()
   destroyTraySync()
   const win = mainWindow
-  if (win && !win.isDestroyed()) {
-    win.close()
+  const forceExit = (): void => {
+    // Some Linux StatusNotifier implementations can leave a “zombie” tray icon if the process
+    // terminates immediately after destroy(). Give the event loop a moment, then hard-exit.
+    setTimeout(() => {
+      try {
+        app.exit(0)
+      } catch {
+        process.exit(0)
+      }
+    }, 1200).unref()
   }
-  app.quit()
+
+  const requestQuit = (): void => {
+    try {
+      app.quit()
+    } finally {
+      forceExit()
+    }
+  }
+
+  if (win && !win.isDestroyed()) {
+    try {
+      // Ensure no “hide instead of close” handler can intercept a quit-triggered close.
+      win.removeAllListeners('close')
+    } catch {
+      /* ignore */
+    }
+    win.once('closed', () => requestQuit())
+    win.close()
+  } else {
+    requestQuit()
+  }
 }
 
 function applyTrayFromSettings(settings?: AppSettings): void {
