@@ -20,11 +20,47 @@ curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/sc
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --yes Mindsaver/linux-sensor-tray
 ```
 
+Dry run (prints actions + paths; makes no changes):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --dry-run Mindsaver/linux-sensor-tray
+```
+
 ### Uninstall
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/uninstall.sh | bash
 ```
+
+Dry run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/uninstall.sh | bash -s -- --dry-run
+```
+
+## Security / trust notes
+
+- The quick installer is convenience. If you are unsure, download and inspect `scripts/install.sh` before running it.
+- The installer is **safe-by-default** (no `sudo` for normal install) and prints what it will change.
+- Optional steps (like zenpower setup) require explicit confirmation before any `sudo` changes.
+- Use `--dry-run` to preview paths and actions.
+
+Tip: to print the install locations without installing, use:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --print-paths --dry-run Mindsaver/linux-sensor-tray
+```
+
+## Verify release asset (recommended)
+
+For AppImage installs, prefer downloading from GitHub Releases and verifying checksums:
+
+```bash
+# Example (replace VERSION / filename with the one from the release page)
+sha256sum -c linux-sensor-tray-<VERSION>.AppImage.sha256
+```
+
+See also: `SECURITY.md`.
 
 ## What it shows
 

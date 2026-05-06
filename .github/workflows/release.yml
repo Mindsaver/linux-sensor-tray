@@ -74,3 +74,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Allow uploading to an existing release older than 2h (electron-builder otherwise skips).
           EP_GH_IGNORE_TIME: true
+
+      - name: Generate AppImage SHA256 checksums
+        run: |
+          ls -la release
+          cd release
+          for f in *.AppImage; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          ls -la *.sha256
+
+      - name: Upload checksums to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+        run: |
+          cd release
+          gh release upload "$RELEASE_VERSION" *.AppImage.sha256 --clobber

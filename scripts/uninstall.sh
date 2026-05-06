@@ -21,6 +21,8 @@ prompt_line_tty() {
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 POLKIT_RULE_PATH="/etc/polkit-1/rules.d/49-linux-sensor-tray.rules"
 
+DRY_RUN=false
+
 resolve_manifest() {
   local explicit="${LST_MANIFEST:-${MONITOR_MANIFEST:-}}"
   if [[ -n "$explicit" ]]; then
@@ -41,6 +43,7 @@ ASSUME_YES=false
 for arg in "$@"; do
   case "$arg" in
     -y | --yes) ASSUME_YES=true ;;
+    --dry-run) DRY_RUN=true ;;
   esac
 done
 if [[ -n "${LST_UNINSTALL_YES:-}" || -n "${MONITOR_UNINSTALL_YES:-}" ]]; then
@@ -56,6 +59,18 @@ fi
 if ! command -v python3 >/dev/null 2>&1; then
   err "python3 is required to read the install manifest."
   exit 1
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo
+  ok "Dry run only; no changes made."
+  info "Would:"
+  info "  - Read manifest: ${MANIFEST}"
+  info "  - Remove app files listed in manifest (only if they match expected locations)"
+  info "  - Optionally remove zenpower blacklist and reload modules (if you choose)"
+  info "  - Optionally remove polkit rule (${POLKIT_RULE_PATH}) (if you choose)"
+  info "  - Optionally delete user data: ${HOME}/.config/linux-sensor-tray and ${HOME}/.config/monitor (prompted)"
+  exit 0
 fi
 
 if [[ "$ASSUME_YES" != true ]]; then
@@ -222,6 +237,13 @@ fi
 
 prompt_rm_config() {
   local dir="$1"
+  case "$dir" in
+    "${HOME}/.config/linux-sensor-tray" | "${HOME}/.config/monitor") ;;
+    *)
+      warn "Refusing to delete unexpected directory: ${dir}"
+      return 1
+      ;;
+  esac
   [[ -d "$dir" ]] || return 0
   if [[ "$ASSUME_YES" != true ]]; then
     prompt_line_tty "Also delete settings and logs under ${dir}? [y/N] " reply2
