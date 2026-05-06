@@ -23,11 +23,15 @@ K10TEMP_BLACKLIST_FILE="/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf
 ZENPOWER_CLI=""
 REPO_POS=""
 ASSUME_YES=false
+DRY_RUN=false
+PRINT_PATHS=false
 for arg in "$@"; do
   case "$arg" in
     --zenpower) ZENPOWER_CLI=yes ;;
     --no-zenpower) ZENPOWER_CLI=no ;;
     -y | --yes) ASSUME_YES=true ;;
+    --dry-run) DRY_RUN=true ;;
+    --print-paths) PRINT_PATHS=true ;;
     -*)
       err "Unknown option: $arg"
       exit 1
@@ -55,6 +59,70 @@ DESKTOP_FILE="${DESKTOP_DIR}/linux-sensor-tray.desktop"
 STABLE_APPIMAGE="${INSTALL_DIR}/linux-sensor-tray.AppImage"
 PARTIAL="${INSTALL_DIR}/linux-sensor-tray.AppImage.partial"
 MANIFEST="${INSTALL_DIR}/install-manifest.json"
+
+normalize_path() {
+  python3 - <<'PY' "$1"
+import os, sys
+print(os.path.realpath(os.path.expanduser(sys.argv[1])))
+PY
+}
+
+validate_install_dir() {
+  local raw="$1"
+  [[ -n "$raw" ]] || { err "INSTALL_DIR is empty."; exit 1; }
+  local resolved
+  resolved="$(normalize_path "$raw")"
+  local home_resolved
+  home_resolved="$(normalize_path "$HOME")"
+  if [[ "$resolved" == "/" ]]; then
+    err "Refusing to install into '/'. Set LST_INSTALL_DIR to a safe directory."
+    exit 1
+  fi
+  if [[ "$resolved" == "$home_resolved" ]]; then
+    err "Refusing to install into your home directory (${resolved})."
+    exit 1
+  fi
+  # Ensure we only install under XDG_DATA_HOME by default, unless explicitly overridden.
+  # Even when overridden, we still refuse broad locations above.
+  INSTALL_DIR="$resolved"
+  STABLE_APPIMAGE="${INSTALL_DIR}/linux-sensor-tray.AppImage"
+  PARTIAL="${INSTALL_DIR}/linux-sensor-tray.AppImage.partial"
+  MANIFEST="${INSTALL_DIR}/install-manifest.json"
+}
+
+validate_install_dir "$INSTALL_DIR"
+
+print_paths() {
+  info "Paths:"
+  info "  Install dir: ${INSTALL_DIR}"
+  info "  AppImage:    ${STABLE_APPIMAGE}"
+  info "  Partial:     ${PARTIAL}"
+  info "  Manifest:    ${MANIFEST}"
+  info "  Bin link:    ${HOME}/.local/bin/linux-sensor-tray"
+  info "  Desktop:     ${DESKTOP_FILE}"
+}
+
+if [[ "$PRINT_PATHS" == true ]]; then
+  print_paths
+  if [[ "$DRY_RUN" == true ]]; then exit 0; fi
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo
+  ok "Dry run only; no changes made."
+  print_paths
+  info "Would:"
+  info "  - Fetch latest release metadata from GitHub (${REPO})"
+  info "  - Download AppImage into: ${STABLE_APPIMAGE}"
+  info "  - Create/update symlink:  ${HOME}/.local/bin/linux-sensor-tray"
+  info "  - Create/update desktop:  ${DESKTOP_FILE}"
+  if [[ "$ZENPOWER_CLI" == yes || -n "${LST_CONFIGURE_ZENPOWER:-${MONITOR_CONFIGURE_ZENPOWER:-}}" ]]; then
+    warn "Note: zenpower configuration may write ${K10TEMP_BLACKLIST_FILE} with sudo and run modprobe."
+  else
+    info "  - (Optional) zenpower step only if you opt in / confirm"
+  fi
+  exit 0
+fi
 
 if [[ "$ASSUME_YES" != true ]]; then
   if can_prompt_tty; then
