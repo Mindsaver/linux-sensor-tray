@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import { deriveHistoryPoint } from '@shared/history'
-import type { AppSettings, HistoryPoint, SensorSnapshot } from '@shared/types'
+import type {
+  AppSettings,
+  HistoryPoint,
+  PrivilegedSystemProbeMode,
+  SensorSnapshot
+} from '@shared/types'
 
 /** Matches src/main/settings.ts DEFAULTS until async settings load. */
 const DEFAULT_RETENTION_MIN = 360
@@ -10,6 +15,8 @@ type Store = {
   history: HistoryPoint[]
   historyCapSamples: number
   chartWindowMinutes: number
+  /** Mirrored here so non-Settings tabs (e.g. System info) can render the Enrich button. */
+  privilegedSystemProbe: PrivilegedSystemProbeMode
   ingest: (s: SensorSnapshot) => void
   applySettings: (s: AppSettings) => void
 }
@@ -23,6 +30,7 @@ export const useSensorTray = create<Store>((set, get) => ({
   history: [],
   historyCapSamples: capSamplesFromMinutes(DEFAULT_RETENTION_MIN),
   chartWindowMinutes: 1,
+  privilegedSystemProbe: 'onDemand',
   ingest: (s) => {
     const point = deriveHistoryPoint(s)
     const cap = get().historyCapSamples
@@ -39,6 +47,7 @@ export const useSensorTray = create<Store>((set, get) => ({
       return {
         historyCapSamples: cap,
         chartWindowMinutes: chart,
+        privilegedSystemProbe: s.privilegedSystemProbe,
         history: h
       }
     })

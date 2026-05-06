@@ -3,8 +3,17 @@ import {
   IPC_CHANNEL_SNAPSHOT,
   type AppSettings,
   type AppSettingsResolved,
-  type SensorSnapshot
+  type SensorSnapshot,
+  type SystemInfoSnapshot
 } from '@shared/types'
+
+type PolkitRuleStatus = {
+  supported: boolean
+  installed: boolean | null
+  readable: boolean
+  matchesShippedRule: boolean | null
+  path: string
+}
 
 const api = {
   /**
@@ -36,6 +45,22 @@ const api = {
   },
   getDefaultHistoryLogDir(): Promise<string> {
     return ipcRenderer.invoke('history:defaultLogDir') as Promise<string>
+  },
+  getSystemInfo(): Promise<SystemInfoSnapshot> {
+    return ipcRenderer.invoke('system:getInfo') as Promise<SystemInfoSnapshot>
+  },
+  /** Re-collect system info while forcing a polkit/pkexec privileged lshw probe. */
+  enrichSystemInfo(): Promise<SystemInfoSnapshot> {
+    return ipcRenderer.invoke('system:enrichWithRoot') as Promise<SystemInfoSnapshot>
+  },
+  polkitRuleStatus(): Promise<PolkitRuleStatus> {
+    return ipcRenderer.invoke('polkit:ruleStatus') as Promise<PolkitRuleStatus>
+  },
+  installPolkitRule(): Promise<PolkitRuleStatus> {
+    return ipcRenderer.invoke('polkit:installRule') as Promise<PolkitRuleStatus>
+  },
+  uninstallPolkitRule(): Promise<PolkitRuleStatus> {
+    return ipcRenderer.invoke('polkit:uninstallRule') as Promise<PolkitRuleStatus>
   }
 }
 

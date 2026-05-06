@@ -38,11 +38,61 @@ export function setTrayTooltip(text: string): void {
   if (tray) tray.setToolTip(text)
 }
 
-export function destroyTray(): void {
-  if (tray) {
-    tray.destroy()
-    tray = null
+function teardownTrayInstance(t: Tray, destroyNow: boolean): void {
+  try {
+    t.removeAllListeners()
+  } catch {
+    /* ignore */
   }
+  try {
+    t.closeContextMenu()
+  } catch {
+    /* Linux / no open menu */
+  }
+  try {
+    t.setContextMenu(null)
+  } catch {
+    /* ignore */
+  }
+  try {
+    t.setToolTip('')
+  } catch {
+    /* ignore */
+  }
+
+  const finish = (): void => {
+    try {
+      if (!t.isDestroyed()) t.destroy()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (destroyNow || process.platform !== 'linux') {
+    finish()
+  } else {
+    setImmediate(finish)
+  }
+}
+
+/**
+ * Fully tear down the tray. Linux StatusNotifier often needs destroy deferred so the
+ * shell removes the icon when toggling settings — but {@link destroyTraySync} must be
+ * used before {@link app.quit}.
+ */
+export function destroyTray(): void {
+  const t = tray
+  if (!t) return
+  tray = null
+  teardownTrayInstance(t, false)
+}
+
+/** Same cleanup as {@link destroyTray} but always destroys the native tray immediately (required for Quit). */
+export function destroyTraySync(): void {
+  const t = tray
+  if (!t) return
+  tray = null
+  teardownTrayInstance(t, true)
 }
 
 function toggleWindow(win: BrowserWindow | null): void {

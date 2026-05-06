@@ -19,6 +19,7 @@ prompt_line_tty() {
 }
 
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+POLKIT_RULE_PATH="/etc/polkit-1/rules.d/49-linux-sensor-tray.rules"
 
 resolve_manifest() {
   local explicit="${LST_MANIFEST:-${MONITOR_MANIFEST:-}}"
@@ -128,6 +129,42 @@ fi
 
 if [[ "$DO_REVERT_BLACKLIST" == true ]]; then
   revert_k10temp_blacklist "$BLACKLIST_FILE" || true
+fi
+
+want_remove_polkit_rule_env() {
+  local e="${LST_UNINSTALL_REMOVE_POLKIT_RULE:-${MONITOR_UNINSTALL_REMOVE_POLKIT_RULE:-}}"
+  case "$(printf '%s' "$e" | tr '[:upper:]' '[:lower:]')" in
+    1 | yes | true | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+remove_polkit_rule() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    err "sudo not found; remove ${POLKIT_RULE_PATH} manually if desired."
+    return 1
+  fi
+  info "Removing ${POLKIT_RULE_PATH} (sudo)…"
+  sudo rm -f "$POLKIT_RULE_PATH"
+  ok "Polkit rule removed."
+}
+
+DO_REMOVE_POLKIT_RULE=false
+if [[ "$ASSUME_YES" == true ]]; then
+  if want_remove_polkit_rule_env; then
+    DO_REMOVE_POLKIT_RULE=true
+  else
+    info "Leaving polkit rule in place (${POLKIT_RULE_PATH}). Set LST_UNINSTALL_REMOVE_POLKIT_RULE=1 to remove it non-interactively."
+  fi
+else
+  prompt_line_tty "Also remove the optional polkit rule (${POLKIT_RULE_PATH})? [y/N] " polkit_rm
+  case "$polkit_rm" in
+    y | Y | yes | YES) DO_REMOVE_POLKIT_RULE=true ;;
+  esac
+fi
+
+if [[ "$DO_REMOVE_POLKIT_RULE" == true ]]; then
+  remove_polkit_rule || true
 fi
 
 rm_paths() {

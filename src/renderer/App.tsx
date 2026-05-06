@@ -7,19 +7,27 @@ import { MainboardTab } from './tabs/Mainboard'
 import { StorageTab } from './tabs/Storage'
 import { OverclockTab } from './tabs/Overclock'
 import { SettingsTab } from './tabs/Settings'
+import { SystemTab } from './tabs/System'
 import { ChartWindowControl } from './components/ChartWindowControl'
 
-type TabId = 'overview' | 'cpu' | 'gpu' | 'overclock' | 'mobo' | 'storage' | 'settings'
+type TabId = 'overview' | 'cpu' | 'gpu' | 'overclock' | 'mobo' | 'storage' | 'system' | 'settings'
 
-const TABS: { id: TabId; label: string }[] = [
+const TABS: { id: Exclude<TabId, 'settings'>; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'cpu', label: 'CPU' },
   { id: 'gpu', label: 'GPU' },
-  { id: 'overclock', label: 'Overclock' },
   { id: 'mobo', label: 'Mainboard' },
   { id: 'storage', label: 'Storage' },
-  { id: 'settings', label: 'Settings' }
+  { id: 'system', label: 'System info' },
+  { id: 'overclock', label: 'OC' }
 ]
+
+function tabBtnClass(active: boolean): string {
+  return (
+    'px-3 py-1.5 rounded-lg text-sm transition-colors ' +
+    (active ? 'bg-slate-800 text-cyan-300 shadow-inner shadow-cyan-500/10' : 'text-slate-300 hover:bg-slate-800/60')
+  )
+}
 
 export default function App(): JSX.Element {
   const [tab, setTab] = useState<TabId>('overview')
@@ -36,31 +44,60 @@ export default function App(): JSX.Element {
     <div className="flex min-h-full flex-1 flex-col">
       <header className="px-5 py-3 border-b border-slate-800/80 flex flex-wrap items-center gap-x-4 gap-y-2 bg-slate-950/60 backdrop-blur sticky top-0 z-10">
         <div className="flex items-center gap-2.5 shrink-0">
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-cyan-500 to-purple-600 shadow shadow-cyan-500/20" />
+          <img
+            src="/favicon.png"
+            alt=""
+            width={28}
+            height={28}
+            decoding="async"
+            draggable={false}
+            className="h-7 w-7 rounded-lg object-contain shrink-0 bg-slate-900/60 ring-1 ring-slate-700/70 shadow-sm shadow-black/30"
+            aria-hidden
+          />
           <h1 className="text-base font-semibold tracking-wide text-slate-100">Linux Sensor Tray</h1>
-          <span className="text-[10px] uppercase tracking-widest text-slate-500 ml-1">
-            CachyOS · AMD
-          </span>
         </div>
         <nav className="flex gap-1 flex-wrap min-w-0">
           {TABS.map((t) => (
             <button
               key={t.id}
+              type="button"
               onClick={() => setTab(t.id)}
-              className={
-                'px-3 py-1.5 rounded-lg text-sm transition-colors ' +
-                (tab === t.id
-                  ? 'bg-slate-800 text-cyan-300 shadow-inner shadow-cyan-500/10'
-                  : 'text-slate-300 hover:bg-slate-800/60')
-              }
+              title={t.id === 'overclock' ? 'Overclock' : undefined}
+              className={tabBtnClass(tab === t.id)}
             >
               {t.label}
             </button>
           ))}
         </nav>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-3 min-w-0">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 min-w-0 shrink-0">
           <ChartWindowControl />
           <div className="text-xs mono text-slate-400 shrink-0 tabular-nums">{headerRight}</div>
+          <button
+            type="button"
+            onClick={() => setTab('settings')}
+            title="Settings"
+            aria-label="Settings"
+            className={
+              'p-2 rounded-lg transition-colors shrink-0 -mr-0.5 ' +
+              (tab === 'settings'
+                ? 'bg-slate-800 text-cyan-300 shadow-inner shadow-cyan-500/10'
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200')
+            }
+          >
+            <svg
+              className="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -79,6 +116,7 @@ export default function App(): JSX.Element {
         {tab === 'overclock' && <OverclockTab />}
         {tab === 'mobo' && <MainboardTab />}
         {tab === 'storage' && <StorageTab />}
+        {tab === 'system' && <SystemTab />}
         {tab === 'settings' && <SettingsTab />}
       </main>
     </div>

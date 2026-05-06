@@ -161,12 +161,247 @@ export type AppSettings = {
   /** Chart time span; cannot exceed retention. */
   chartWindowMinutes: number
   diskLogEnabled: boolean
+  /** Minimum seconds between disk log lines (poll is ~1 Hz). Clamped in main process. Default 1. */
+  diskLogIntervalSeconds: number
   /** Absolute path, or null for default under Electron userData/sensor_logs */
   diskLogDirectory: string | null
+  /**
+   * When true (default), a tray icon is shown and closing the window hides it.
+   * When false, there is no tray entry and closing the window quits the app.
+   */
+  trayEnabled: boolean
+  /**
+   * Linux packaged builds only: write XDG autostart (`~/.config/autostart/…`).
+   * Ignored in dev and on non-Linux platforms.
+   */
+  openAtLogin: boolean
+  /**
+   * Linux only privileged hardware probe via `pkexec /usr/sbin/lshw -json`.
+   * - 'off'      — never call pkexec; only unprivileged lshw runs.
+   * - 'onDemand' — System info shows an "Enrich with root data" button that triggers pkexec on click (app default).
+   * - 'always'   — every System info refresh runs pkexec (use with a polkit YES rule to skip prompts).
+   */
+  privilegedSystemProbe: PrivilegedSystemProbeMode
 }
+
+export type PrivilegedSystemProbeMode = 'off' | 'onDemand' | 'always'
 
 export type AppSettingsResolved = AppSettings & {
   resolvedLogDirectory: string
+  /** Whether `openAtLogin` can take effect (packaged Linux AppImage/deb-style install). */
+  openAtLoginSupported: boolean
+  /** True when `privilegedSystemProbe` applies (Linux). */
+  privilegedSystemProbeSupported: boolean
 }
 
 export const IPC_CHANNEL_SNAPSHOT = 'sensors:snapshot'
+
+/** Static / slow-changing hardware + OS summary from `systeminformation` (main process). */
+export type SystemInfoOs = {
+  hostname: string
+  distro: string
+  release: string
+  kernel: string
+  arch: string
+  platform: string
+  uefi: boolean | null
+}
+
+export type SystemInfoHardware = {
+  manufacturer: string
+  model: string
+  version: string
+  serial: string
+  virtual: boolean
+}
+
+export type SystemInfoBios = {
+  vendor: string
+  version: string
+  releaseDate: string
+}
+
+export type SystemInfoBaseboard = {
+  manufacturer: string
+  model: string
+  version: string
+  serial: string
+  memSlots: number | null
+  memMaxMB: number | null
+}
+
+export type SystemInfoCpu = {
+  manufacturer: string
+  brand: string
+  vendor: string
+  cores: number
+  physicalCores: number
+  processors: number
+  socket: string
+  speedGHz: number
+  speedMinGHz: number
+  speedMaxGHz: number
+  governor: string
+  virtualization: boolean
+  /** Level 3 cache in MB when reported. */
+  cacheL3MB: number | null
+}
+
+export type SystemInfoMemoryModule = {
+  sizeBytes: number
+  type: string
+  manufacturer: string
+  partNum: string
+  clockMHz: number | null
+  formFactor: string
+  /** Bank / slot locator when SMBIOS, EDAC, or lshw provides it. */
+  slot?: string
+  serialNum?: string
+}
+
+export type SystemInfoMemorySummary = {
+  totalBytes: number
+  modules: SystemInfoMemoryModule[]
+}
+
+export type SystemInfoGpu = {
+  vendor: string
+  model: string
+  bus: string
+  vramBytes: number | null
+  driverVersion: string | null
+}
+
+export type SystemInfoDisk = {
+  device: string
+  type: string
+  name: string
+  vendor: string
+  sizeBytes: number
+  interfaceType: string
+  serialNum: string
+  firmware: string
+  tempC: number | null
+}
+
+export type SystemInfoFs = {
+  mount: string
+  fs: string
+  type: string
+  sizeBytes: number
+  usedBytes: number
+  usePct: number
+}
+
+export type SystemInfoNet = {
+  iface: string
+  mac: string
+  ip4: string
+  speedMbps: number | null
+  operstate: string
+  internal: boolean
+  virtual: boolean
+}
+
+export type SystemInfoDisplay = {
+  vendor: string
+  model: string
+  resolution: string
+  refreshHz: number | null
+  connection: string | null
+}
+
+export type SystemInfoBlockDev = {
+  name: string
+  type: string
+  mount: string
+  sizeBytes: number
+  removable: boolean
+  model: string
+}
+
+export type SystemInfoLshwNvme = {
+  product: string
+  vendor: string
+  serial: string
+  sizeBytes: number | null
+  device: string
+}
+
+/** Optional fields from a full `lshw -json` parse (excluding probe mode). */
+export type SystemInfoLshwParsed = {
+  cpuCacheBytes?: { l1?: number; l2?: number; l3?: number }
+  primaryGpuProduct?: string
+  systemProduct?: string
+  baseboardSerial?: string
+  nvmeDevices?: SystemInfoLshwNvme[]
+  notableUsb?: { vendor: string; product: string }[]
+  amdCryptoCoprocessor?: boolean
+}
+
+/** Optional fields from a full `lshw -json` parse (privileged or user). */
+export type SystemInfoLshwExtras = SystemInfoLshwParsed & {
+  probeSource: 'pkexec' | 'user'
+}
+
+export type SystemInfoSnapshot = {
+  collectedAt: number
+  os: SystemInfoOs | null
+  hardware: SystemInfoHardware | null
+  bios: SystemInfoBios | null
+  baseboard: SystemInfoBaseboard | null
+  chassis: { manufacturer: string; model: string; type: string } | null
+  cpu: SystemInfoCpu | null
+  memory: SystemInfoMemorySummary | null
+  gpus: SystemInfoGpu[]
+  displays: SystemInfoDisplay[]
+  disks: SystemInfoDisk[]
+  blockDevices: SystemInfoBlockDev[]
+  filesystems: SystemInfoFs[]
+  network: SystemInfoNet[]
+  /** Full lshw parse when the probe succeeded; merge with `gpus` / baseboard in UI as needed. */
+  lshwExtras: SystemInfoLshwExtras | null
+  /**
+   * Linux: how to enable a polkit rule for richer SMBIOS. Null when not applicable or already using privileged probe.
+   */
+  privilegedProbeHint: string | null
+  /** Non-fatal collection issues (missing dmidecode, permission, …). */
+  warnings: string[]
+}
+
+/** Polkit rules body (shown verbatim in Settings). */
+export const PRIVILEGED_PROBE_POLKIT_RULES = `polkit.addRule(function(action, subject) {
+  if (action.id !== "org.freedesktop.policykit.exec") return;
+  var prog = action.lookup("program");
+  if (prog !== "/usr/sbin/lshw" && prog !== "/usr/bin/lshw") return;
+  if (subject.isInGroup("wheel")) return polkit.Result.YES;
+});`
+
+/**
+ * Installer for bash/zsh/sh (fully visible).
+ */
+export const PRIVILEGED_PROBE_POLKIT_INSTALL_SH = `sudo sh -c 'umask 022; mkdir -p /etc/polkit-1/rules.d; cat > /etc/polkit-1/rules.d/49-linux-sensor-tray.rules' <<'EOF'
+${PRIVILEGED_PROBE_POLKIT_RULES}
+EOF
+sudo chmod 0644 /etc/polkit-1/rules.d/49-linux-sensor-tray.rules`
+
+/**
+ * Installer for fish (fully visible). `tee` runs under sudo, so writing to /etc works.
+ */
+export const PRIVILEGED_PROBE_POLKIT_INSTALL_FISH = `sudo mkdir -p /etc/polkit-1/rules.d
+begin
+  echo 'polkit.addRule(function(action, subject) {'
+  echo '  if (action.id !== \"org.freedesktop.policykit.exec\") return;'
+  echo '  var prog = action.lookup(\"program\");'
+  echo '  if (prog !== \"/usr/sbin/lshw\" && prog !== \"/usr/bin/lshw\") return;'
+  echo '  if (subject.isInGroup(\"wheel\")) return polkit.Result.YES;'
+  echo '});'
+end | sudo tee /etc/polkit-1/rules.d/49-linux-sensor-tray.rules >/dev/null
+sudo chmod 0644 /etc/polkit-1/rules.d/49-linux-sensor-tray.rules`
+
+/**
+ * Short hint string included in `SystemInfoSnapshot.privilegedProbeHint` so the renderer can
+ * surface a minimal one-line info box (full instructions live in the Settings card).
+ */
+export const PRIVILEGED_PROBE_HINT_LINE =
+  'Some hardware details need a privileged probe. Enable it in Settings or click Enrich with root data.'

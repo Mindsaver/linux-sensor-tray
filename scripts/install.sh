@@ -216,3 +216,16 @@ info "  AppImage: ${STABLE_APPIMAGE}"
 info "  Command:  ${BIN_LINK} (ensure ~/.local/bin is on PATH)"
 info "  Uninstall: curl -fsSL https://raw.githubusercontent.com/${REPO%%/*}/${REPO#*/}/main/scripts/uninstall.sh | bash"
 warn "Keep the AppImage at this path so in-app auto-updates can replace it."
+
+missing=()
+command -v lshw >/dev/null 2>&1 || missing+=("lshw")
+command -v pkexec >/dev/null 2>&1 || missing+=("polkit (pkexec)")
+if (( ${#missing[@]} > 0 )); then
+  echo
+  warn "Optional: System info enrichment needs: ${missing[*]}"
+  if command -v pacman >/dev/null 2>&1; then
+    info "Arch/CachyOS: sudo pacman -S --needed lshw polkit"
+  else
+    info "Install via your distro package manager: lshw + polkit (pkexec)"
+  fi
+fi

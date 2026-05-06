@@ -4,7 +4,7 @@ Tray-first Electron app for live CPU, GPU, mainboard, and storage stats on Linux
 
 Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray). Packaged builds use `**Linux Sensor Tray**` / `linux-sensor-tray` (`executableName`); GitHub release assets are named by electron-builder (typically `linux-sensor-tray-<version>-*.AppImage`). The install script saves the stable path `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage` and adds `~/.local/bin/linux-sensor-tray`.
 
-![Linux Sensor Tray — main window](docs/Screenshot.png)
+Linux Sensor Tray — main window
 
 ## What it shows
 
@@ -17,6 +17,66 @@ Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsave
 - **Memory**: RAM and swap usage
 
 The Overview tab gives a single-page glanceable dashboard. The **Overclock** tab groups CPU frequency limits and AMDGPU DPM/overdrive sysfs. The CPU and GPU tabs focus on live sensors and charts, with pointers to Overclock for tuning details.
+
+## Possible additions: system identity, health, and “system report”
+
+These are **candidate features** that would broaden Linux Sensor Tray from “live sensors” into a lightweight **system identity + health** and **bottleneck** view. Most items can be sourced from **read-only sysfs/procfs**, plus optional helpers (e.g. `smartctl`) when present.
+
+### Hardware identity & health
+
+- **CPU microcode + cpufreq policy**
+  - Microcode revision + vendor: `/proc/cpuinfo`, `dmesg` (if accessible)
+  - Governor, driver, min/max, boost: `/sys/devices/system/cpu/cpufreq/policy*/`
+  - **EPP** and **amd-pstate mode** (`active`/`passive`/`guided`): `/sys/devices/system/cpu/amd_pstate/` and `energy_performance_preference`
+  - Helpful “why boosts differ” explanation panel: show what’s limiting boosting right now (governor, EPP, thermal headroom, package power, scaling vs hardware max, BIOS cap when detectable)
+- **Memory**
+  - **ECC supported / enabled** where exposed (platform dependent): `edac` sysfs (when `edac_mc` is present)
+  - **Memory controller errors / EDAC counters**: `/sys/devices/system/edac/mc/` (CE/UE counts and per-DIMM labels when available)
+- **Storage health**
+  - **SMART summary** (NVMe/SATA): via `smartctl` when installed (fallback to sysfs-only if not)
+  - Key fields to surface:
+    - Wear indicator (NVMe “percentage used”), media errors, error log entries
+    - Reallocated sectors (SATA), pending sectors, UDMA CRC errors
+    - Total bytes written / TBW estimate (NVMe “data units written”, vendor TBW if known)
+  - NVMe-only fallback details (when `smartctl` unavailable): `/sys/class/nvme/nvme*/` + `/sys/class/nvme/nvme*n*/`
+- **Battery (laptops)**
+  - Health % and cycle count (if exposed): `/sys/class/power_supply/BAT*/`
+  - Current charge/discharge power (W) + time remaining estimate when possible
+
+### Performance & bottlenecks
+
+- **Top processes**
+  - Per-process CPU% + RAM: `/proc/[pid]/stat`, `/proc/[pid]/status`
+  - Disk I/O per process: `/proc/[pid]/io` (read/write bytes)
+  - GPU usage per process (best-effort):
+    - AMDGPU: `amdgpu_top`-style accounting is not always available; can surface “not supported” clearly
+    - NVIDIA: optional NVML integration (only if user enables and driver supports)
+- **Disk I/O**
+  - Throughput + latency per device: `/sys/block/*/stat` (derive r/s, w/s, await-style estimates)
+  - NVMe queue depth and device model/firmware: `/sys/class/nvme/…`
+- **Network**
+  - Current throughput per interface: `/sys/class/net/*/statistics/{rx_bytes,tx_bytes}`
+  - Wi‑Fi details (SSID/link rate/signal): optional `iw`/nl80211 query when available (fallback to “wired/unknown”)
+
+### Firmware / platform signals
+
+- **Secure Boot state**
+  - `mokutil --sb-state` when present; otherwise check UEFI vars (requires permissions and is distro-dependent)
+- **TPM presence**
+  - `/dev/tpm0` and `/sys/class/tpm/` enumeration; version if readable
+- **Kernel cmdline + relevant modules**
+  - Command line: `/proc/cmdline`
+  - Loaded modules relevant to sensors & performance: `/proc/modules` (highlight `k10temp`, `zenpower`, `amdgpu`, `nvme`, `drivetemp`, `edac_mc`, vendor WMI, etc.)
+
+### “Quality of life” summaries
+
+- **System report export**
+  - One button: **Copy redacted summary** to clipboard (and/or save `.txt`/`.json`)
+  - Redaction defaults: hash/trim serial numbers, MACs, hostnames; keep vendor/model + driver versions
+  - Include: CPU/GPU/mainboard/storage identifiers, kernel + cmdline, driver modules, key sensor availability, SMART “OK/attention” summary, battery health
+- **Change detection**
+  - Notify on: “driver changed”, “kernel updated”, “new USB device”, “GPU power profile changed”, “battery health drop”, “SMART attributes worsened”
+  - Implementation sketch: persist last-seen inventory snapshot and diff it at startup / periodic interval (with a “review changes” UI)
 
 ## History viewer and disk logging
 
@@ -53,7 +113,50 @@ The running app **does not** change kernel modules; it looks for an hwmon device
 
 The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt on the controlling terminal — including `**curl … | bash`**, which reads from `**/dev/tty`** — or pass `**--zenpower**`, `**--no-zenpower**`, or set `**LST_CONFIGURE_ZENPOWER=1**` / `**MONITOR_CONFIGURE_ZENPOWER=1**`). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
 
-To set this up yourself: unload `k10temp` (`sudo modprobe -r k10temp`), load `zenpower` (`sudo modprobe zenpower`), then make it persistent—typically `**blacklist k10temp**` in a file under `/etc/modprobe.d/` (see your distro and the [zenpower](https://github.com/ocerman/zenpower) install notes). **Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
+#### Easy setup (Arch / CachyOS)
+
+Install the DKMS module (AUR helper required):
+
+```bash
+yay -S --needed zenpower3-dkms
+```
+
+Then switch from `k10temp` → `zenpower`:
+
+```bash
+sudo tee /etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf >/dev/null <<'EOF'
+# linux-sensor-tray: blacklist k10temp so zenpower can bind (managed by install.sh / uninstall.sh)
+blacklist k10temp
+EOF
+
+sudo modprobe -r k10temp || true
+sudo modprobe zenpower
+```
+
+Verify which driver is active:
+
+```bash
+lsmod | rg '^(zenpower|k10temp)\b'
+```
+
+If `zenpower` fails to load after a kernel upgrade, remove the blacklist (or fix/rebuild the DKMS module) to restore `k10temp`.
+
+#### Automated (recommended)
+
+Use the installer prompt, or force it non-interactively:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --zenpower
+```
+
+#### Manual (generic)
+
+Uninstall / revert:
+
+- If you installed the blacklist via our install script, `scripts/uninstall.sh` will offer to remove it and reload `k10temp`.
+- Otherwise remove your `blacklist k10temp` file under `/etc/modprobe.d/` and reboot (or `sudo modprobe k10temp`).
+
+**Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
 
 ## Run from source
 
@@ -101,7 +204,7 @@ If the manifest lists our k10temp blacklist file, uninstall **asks whether to re
 
 ## Build a packaged app (maintainers)
 
-**Icon:** raster logo lives at `**build/icon.png`** (512×512 PNG). electron-builder uses it for Linux launcher/AppImage metadata via `**directories.buildResources**`, and the same file is shipped next to the app as `**icon.png**` (`extraResources`) so the window and tray load it at runtime. If that file is missing, the app falls back to a built-in teal icon.
+**Icon:** raster logo lives at `**build/icon.png`** (512×512 PNG). electron-builder uses it for Linux launcher/AppImage metadata via `**directories.buildResources`**, and the same file is shipped next to the app as `**icon.png**` (`extraResources`) so the window and tray load it at runtime. If that file is missing, the app falls back to a built-in teal icon.
 
 ```bash
 npm run build
@@ -124,3 +227,4 @@ Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version
 - **Disk logging and offline charts:** see **[History viewer and disk logging](#history-viewer-and-disk-logging)** (`.jsonl` layout, folders, and `**history-viewer.html`**).
 - All sensor reads happen in the Electron main process; the renderer only receives a typed `SensorSnapshot` over IPC. The preload script is the only bridge (`contextIsolation: true`, `nodeIntegration: false`).
 - **AppImage / FUSE:** If the AppImage fails to run, install `fuse2` or `libfuse` (varies by distro) and try again.
+

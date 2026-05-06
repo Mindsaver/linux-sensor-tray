@@ -48,6 +48,15 @@ export const fmt = {
     if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(0) + ' MB'
     return Math.round(kb) + ' KB'
   },
+  /** Binary (IEC) units from raw bytes. */
+  bytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes < 0) return '—'
+    if (bytes >= 1024 ** 4) return (bytes / 1024 ** 4).toFixed(2) + ' TiB'
+    if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(2) + ' GiB'
+    if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(0) + ' MiB'
+    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KiB'
+    return `${Math.round(bytes)} B`
+  },
   historyRangeMinutes: formatHistoryRangeMinutes
 }
 

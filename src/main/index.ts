@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { collectSnapshot } from './sensors'
-import { createTray, destroyTray, setTrayTooltip } from './tray'
+import { createTray, destroyTray, destroyTraySync, setTrayTooltip } from './tray'
 import { generateAppIcon } from './icon'
 import { queueHistoryAppend } from './historyLog'
 import {
@@ -24,6 +24,9 @@ import {
 import { ensureHistoryViewerInDir } from './installHistoryViewer'
 import { initAutoUpdater, triggerUpdateCheck } from './updater'
 import { skipAutoUpdate } from './runtimeEnv'
+import { linuxAutostartSupported, syncLinuxAutostart } from './linuxAutostart'
+import { collectSystemInfo } from './systemInfo'
+import { getPolkitRuleStatus, installPolkitRule, uninstallPolkitRule } from './linuxPolkitRule'
 import {
   IPC_CHANNEL_SNAPSHOT,
   type AppSettings,
@@ -49,6 +52,10 @@ function resolvePreload(): string {
 let mainWindow: BrowserWindow | null = null
 let pollTimer: NodeJS.Timeout | null = null
 let isQuitting = false
+/** Passed into tray menu when packaged updates are enabled. */
+let trayUpdateCheck: (() => void) | undefined
+/** Last snapshot timestamp (ms) when a disk log line was written; null until first write after enable. */
+let lastDiskLogAtMs: number | null = null
 
 function createWindow(): BrowserWindow {
   const icon = nativeImage.createFromBuffer(generateAppIcon(128))
@@ -78,10 +85,15 @@ function createWindow(): BrowserWindow {
   })
 
   win.on('close', (e) => {
-    if (!isQuitting) {
+    if (isQuitting) return
+    if (getSettingsSnapshot().trayEnabled) {
       e.preventDefault()
       win.hide()
     }
+  })
+
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -104,7 +116,12 @@ function fmtTooltip(s: SensorSnapshot): string {
 
 function resolvedSettings(): AppSettingsResolved {
   const s = getSettingsSnapshot()
-  return { ...s, resolvedLogDirectory: resolveLogDirectory(s) }
+  return {
+    ...s,
+    resolvedLogDirectory: resolveLogDirectory(s),
+    openAtLoginSupported: linuxAutostartSupported(),
+    privilegedSystemProbeSupported: process.platform === 'linux'
+  }
 }
 
 async function deployHistoryViewer(): Promise<void> {
@@ -137,7 +154,14 @@ async function tick(): Promise<void> {
     setTrayTooltip(fmtTooltip(snap))
     const st = getSettingsSnapshot()
     if (st.diskLogEnabled) {
-      queueHistoryAppend(resolveLogDirectory(st), snap)
+      const intervalMs = Math.max(1, st.diskLogIntervalSeconds) * 1000
+      const t = snap.timestamp
+      if (lastDiskLogAtMs === null || t - lastDiskLogAtMs >= intervalMs) {
+        queueHistoryAppend(resolveLogDirectory(st), snap)
+        lastDiskLogAtMs = t
+      }
+    } else {
+      lastDiskLogAtMs = null
     }
   } catch (err) {
     console.error('[sensors] poll failed:', err)
@@ -160,22 +184,50 @@ function stopPolling(): void {
 }
 
 function quitApp(): void {
+  if (isQuitting) return
   isQuitting = true
   stopPolling()
-  destroyTray()
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+  destroyTraySync()
+  const win = mainWindow
+  if (win && !win.isDestroyed()) {
+    win.close()
+  }
   app.quit()
+}
+
+function applyTrayFromSettings(settings?: AppSettings): void {
+  const st = settings ?? getSettingsSnapshot()
+  destroyTray()
+  if (!st.trayEnabled) {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+    }
+    return
+  }
+  createTray(
+    () => mainWindow,
+    () => quitApp(),
+    trayUpdateCheck
+  )
 }
 
 app.whenReady().then(async () => {
   await initSettings()
+  await syncLinuxAutostart(getSettingsSnapshot().openAtLogin)
   await deployHistoryViewer()
 
   ipcMain.handle('sensors:get', () => collectSnapshot())
+  ipcMain.handle('system:getInfo', () => collectSystemInfo())
+  ipcMain.handle('system:enrichWithRoot', () => collectSystemInfo({ force: 'privileged' }))
+  ipcMain.handle('polkit:ruleStatus', () => getPolkitRuleStatus())
+  ipcMain.handle('polkit:installRule', () => installPolkitRule())
+  ipcMain.handle('polkit:uninstallRule', () => uninstallPolkitRule())
   ipcMain.handle('settings:get', () => resolvedSettings())
   ipcMain.handle('settings:set', async (_e, partial: Partial<AppSettings>) => {
-    await saveSettings(partial)
+    const merged = await saveSettings(partial)
+    await syncLinuxAutostart(merged.openAtLogin)
     await deployHistoryViewer()
+    applyTrayFromSettings(merged)
     return resolvedSettings()
   })
   ipcMain.handle('history:openLogFolder', async () => {
@@ -195,11 +247,8 @@ app.whenReady().then(async () => {
   mainWindow = createWindow()
   initAutoUpdater(() => mainWindow)
   const canCheckUpdates = app.isPackaged && !skipAutoUpdate()
-  createTray(
-    () => mainWindow,
-    () => quitApp(),
-    canCheckUpdates ? () => triggerUpdateCheck(true) : undefined
-  )
+  trayUpdateCheck = canCheckUpdates ? () => triggerUpdateCheck(true) : undefined
+  applyTrayFromSettings()
   startPolling()
 
   app.on('activate', () => {
@@ -212,7 +261,9 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  // Stay alive in tray.
+  if (!getSettingsSnapshot().trayEnabled && !isQuitting) {
+    quitApp()
+  }
 })
 
 app.on('before-quit', () => {

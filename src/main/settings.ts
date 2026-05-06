@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, PrivilegedSystemProbeMode } from '@shared/types'
 
 export const SETTINGS_FILENAME = 'linux-sensor-tray-settings.json'
 const LEGACY_SETTINGS_FILENAME = 'monitor-settings.json'
@@ -10,11 +10,20 @@ const DEFAULTS: AppSettings = {
   historyRetentionMinutes: 360,
   chartWindowMinutes: 1,
   diskLogEnabled: false,
-  diskLogDirectory: null
+  diskLogIntervalSeconds: 1,
+  diskLogDirectory: null,
+  trayEnabled: true,
+  openAtLogin: false,
+  privilegedSystemProbe: 'onDemand'
 }
+
+const PRIVILEGED_PROBE_MODES: readonly PrivilegedSystemProbeMode[] = ['off', 'onDemand', 'always']
 
 const MIN_RETENTION = 10
 const MAX_RETENTION = 10080 // 7 days @ 1 Hz ≈ 604k points (~tens of MB RAM)
+
+const MIN_DISK_LOG_INTERVAL_SEC = 1
+const MAX_DISK_LOG_INTERVAL_SEC = 3600
 
 let cached: AppSettings | null = null
 
@@ -32,11 +41,37 @@ function clampSettings(partial: AppSettings): AppSettings {
       ? null
       : partial.diskLogDirectory
 
+  let diskLogIntervalSeconds = Math.round(partial.diskLogIntervalSeconds ?? DEFAULTS.diskLogIntervalSeconds)
+  if (!Number.isFinite(diskLogIntervalSeconds)) diskLogIntervalSeconds = DEFAULTS.diskLogIntervalSeconds
+  diskLogIntervalSeconds = Math.max(
+    MIN_DISK_LOG_INTERVAL_SEC,
+    Math.min(MAX_DISK_LOG_INTERVAL_SEC, diskLogIntervalSeconds)
+  )
+
+  const trayEnabled =
+    partial.trayEnabled === true || partial.trayEnabled === false
+      ? partial.trayEnabled
+      : DEFAULTS.trayEnabled
+
+  const p = partial.privilegedSystemProbe as unknown
+  const privilegedSystemProbe: PrivilegedSystemProbeMode =
+    p === true
+      ? 'always'
+      : p === false
+        ? 'off'
+        : PRIVILEGED_PROBE_MODES.includes(p as PrivilegedSystemProbeMode)
+          ? (p as PrivilegedSystemProbeMode)
+          : DEFAULTS.privilegedSystemProbe
+
   return {
     historyRetentionMinutes: history,
     chartWindowMinutes: chart,
     diskLogEnabled: Boolean(partial.diskLogEnabled),
-    diskLogDirectory
+    diskLogIntervalSeconds,
+    diskLogDirectory,
+    trayEnabled,
+    openAtLogin: Boolean(partial.openAtLogin),
+    privilegedSystemProbe
   }
 }
 
@@ -91,7 +126,10 @@ export function getSettingsSnapshot(): AppSettings {
 
 export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
   const base = cached ?? DEFAULTS
-  const merged = clampSettings({ ...base, ...partial })
+  const cleaned = Object.fromEntries(
+    Object.entries(partial).filter(([, v]) => v !== undefined)
+  ) as Partial<AppSettings>
+  const merged = clampSettings({ ...base, ...cleaned })
   const dir = app.getPath('userData')
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, SETTINGS_FILENAME), JSON.stringify(merged, null, 2), 'utf8')

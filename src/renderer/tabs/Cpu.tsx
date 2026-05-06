@@ -120,12 +120,10 @@ export function CpuTab(): JSX.Element {
 
       {!s.cpu.hasZenpower && (
         <Card title="Tip" className="col-span-12">
-          <p className="text-sm text-slate-300">
-            For full per-core voltage, current and CCD temperatures install the
-            <span className="mono mx-1 text-cyan-300">zenpower3-dkms</span>
-            kernel module (available on CachyOS via AUR). Then unload
-            <span className="mono mx-1 text-cyan-300">k10temp</span> and load
-            <span className="mono mx-1 text-cyan-300">zenpower</span>.
+          <p className="text-sm text-slate-300 leading-relaxed">
+            For full Ryzen telemetry, install zenpower (e.g. <span className="mono text-cyan-300">zenpower3-dkms</span> on
+            Arch/CachyOS). Guide:{' '}
+            <span className="mono text-slate-400">https://github.com/Mindsaver/linux-sensor-tray#zenpower-and-k10temp</span>
           </p>
         </Card>
       )}
