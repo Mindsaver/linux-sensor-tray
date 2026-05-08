@@ -68,6 +68,8 @@ let pollTimer: NodeJS.Timeout | null = null
 let isQuitting = false
 /** Passed into tray menu when packaged updates are enabled. */
 let trayUpdateCheck: (() => void) | undefined
+let trayEnabledApplied: boolean | null = null
+let trayCreated = false
 /** Last snapshot timestamp (ms) when a disk log line was written; null until first write after enable. */
 let lastDiskLogAtMs: number | null = null
 let aurUpdatePromptOpen = false
@@ -263,6 +265,8 @@ function quitApp(): void {
   console.info('[lst] quit: begin')
   stopPolling()
   destroyTraySync()
+  trayCreated = false
+  trayEnabledApplied = null
 
   let requestedQuit = false
   const forceExit = (reason: string): void => {
@@ -318,18 +322,25 @@ function quitApp(): void {
 
 function applyTrayFromSettings(settings?: AppSettings): void {
   const st = settings ?? getSettingsSnapshot()
-  destroyTray()
   if (!st.trayEnabled) {
+    trayEnabledApplied = false
+    if (trayCreated) {
+      destroyTray()
+      trayCreated = false
+    }
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show()
     }
     return
   }
+  trayEnabledApplied = true
+  if (trayCreated) return
   createTray(
     () => mainWindow,
     () => quitApp(),
     trayUpdateCheck
   )
+  trayCreated = true
 }
 
 app.whenReady().then(async () => {
@@ -379,7 +390,9 @@ app.whenReady().then(async () => {
     const merged = await saveSettings(partial)
     await syncLinuxAutostart(merged.openAtLogin)
     await deployHistoryViewer()
-    applyTrayFromSettings(merged)
+    if (partial.trayEnabled !== undefined || trayEnabledApplied === null) {
+      applyTrayFromSettings(merged)
+    }
     return resolvedSettings()
   })
   ipcMain.handle('history:openLogFolder', async () => {
