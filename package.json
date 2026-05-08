@@ -40,6 +40,7 @@
     "appId": "io.github.mindsaver.linux_sensor_tray",
     "productName": "Linux Sensor Tray",
     "executableName": "linux-sensor-tray",
+    "icon": "build/icon.png",
     "directories": {
       "output": "release",
       "buildResources": "build"
