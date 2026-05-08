@@ -425,10 +425,19 @@ export function SettingsTab(): JSX.Element {
 
       <Card
         title="Setup"
-        subtitle="Optional packages, kernel modules, and polkit rules — see the System tab for the full grid"
+        subtitle="Optional packages, kernel modules, and polkit rules"
         className="col-span-12"
       >
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new Event(SETUP_WIZARD_OPEN_EVENT))
+            }}
+            className="px-3 py-1.5 rounded-lg text-sm bg-slate-800 text-cyan-300 hover:bg-slate-700"
+          >
+            Open setup overlay
+          </button>
           <button
             type="button"
             onClick={async () => {
@@ -445,9 +454,8 @@ export function SettingsTab(): JSX.Element {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
-          Clears the &quot;don&apos;t show anymore&quot; flag for this app version and reopens the
-          first-run wizard immediately. The grid is also always available in the System info tab
-          under <span className="mono text-slate-400">Hardware setup</span>.
+          Use the overlay to check optional features (zenpower binding, `lshw`/`pkexec`, and the polkit
+          rule) and run one-click setup actions.
         </p>
       </Card>
 
