@@ -154,6 +154,50 @@ export type HistoryPoint = {
   ramUsedPct: number
 }
 
+/** Distro package managers we can drive non-interactively from `linux-sensor-tray-setup install-deps`. */
+export type SetupPkgManager = 'pacman' | 'apt' | 'dnf' | 'zypper' | 'unknown'
+
+/** Per-process snapshot of optional setup state (driven by `linux-sensor-tray-setup doctor --json`). */
+export type SetupCapabilities = {
+  /** True when the CLI wasn't found on PATH and the data below is synthesized in main. */
+  cliMissing: boolean
+  /** Absolute path to `linux-sensor-tray-setup`, null when synthesized fallback. */
+  cliPath: string | null
+  /** Reason the CLI couldn't be invoked (only set when `cliMissing` is true). */
+  cliError?: string
+  cpuVendor: 'AuthenticAMD' | 'GenuineIntel' | 'other'
+  distro: {
+    id: string
+    idLike: string[]
+    pkgManager: SetupPkgManager
+  }
+  hwmon: {
+    zenpower: boolean
+    k10temp: boolean
+    blacklistFile: string
+    blacklistInstalled: boolean
+  }
+  polkitRule: { installed: boolean; path: string }
+  tools: { pkexec: boolean; lshw: boolean; yay: boolean; paru: boolean }
+  optionalPkgs: { lshw: boolean; polkit: boolean; 'zenpower3-dkms': boolean }
+}
+
+/** Result of a privileged setup CLI invocation (zenpower / polkit-rule / install-deps). */
+export type SetupCommandResult = {
+  ok: boolean
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  error?: string
+}
+
+/** Whether to open the first-run wizard on this launch; main process decides via semver compare. */
+export type SetupWizardState = {
+  shouldOpen: boolean
+  currentVersion: string
+  seenForVersion: string
+}
+
 /** Persisted UI / logging preferences (`userData/linux-sensor-tray-settings.json`; legacy `monitor-settings.json` is migrated once). */
 export type AppSettings = {
   /** In-memory ring buffer length; at 1 Hz this is minutes × 60 samples. Clamped 10 min … 7 d. */
@@ -182,6 +226,12 @@ export type AppSettings = {
    * - 'always'   — every System info refresh runs pkexec (use with a polkit YES rule to skip prompts).
    */
   privilegedSystemProbe: PrivilegedSystemProbeMode
+  /**
+   * Highest app version for which the user clicked "Don't show anymore" on the first-run setup wizard.
+   * Empty string means the wizard has not been dismissed yet. Compared with semver to decide auto-open.
+   * "Skip" does NOT write this field — it closes for the session only.
+   */
+  setupWizardSeenForVersion: string
 }
 
 export type PrivilegedSystemProbeMode = 'off' | 'onDemand' | 'always'

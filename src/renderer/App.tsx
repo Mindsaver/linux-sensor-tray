@@ -10,6 +10,10 @@ import { SettingsTab } from './tabs/Settings'
 import { SystemTab } from './tabs/System'
 import { TasksTab } from './tabs/Tasks'
 import { ChartWindowControl } from './components/ChartWindowControl'
+import { SetupWizard } from './components/SetupWizard'
+
+/** Dispatched by the Settings tab's "Re-run setup wizard" button to reopen the modal. */
+export const SETUP_WIZARD_OPEN_EVENT = 'lst:open-setup-wizard'
 
 type TabId = 'overview' | 'cpu' | 'gpu' | 'tasks' | 'overclock' | 'mobo' | 'storage' | 'system' | 'settings'
 
@@ -36,6 +40,7 @@ export default function App(): JSX.Element {
   const latest = useSensorTray((s) => s.latest)
   const [preloadOk] = useState(() => typeof window !== 'undefined' && !!window.api)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   useEffect(() => startSensorBridge(), [])
   useEffect(() => {
@@ -46,6 +51,32 @@ export default function App(): JSX.Element {
       if (el) el.href = url
     })
   }, [preloadOk])
+
+  // Auto-open the first-run wizard when main says so. Only fires once per launch.
+  useEffect(() => {
+    if (!preloadOk) return
+    let cancelled = false
+    void window.api.setup
+      .getWizardState()
+      .then((state) => {
+        if (cancelled) return
+        if (state.shouldOpen) setWizardOpen(true)
+      })
+      .catch((e: unknown) => {
+        console.error('[lst] setup.getWizardState failed:', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [preloadOk])
+
+  // Settings tab's "Re-run setup wizard" button dispatches this event after clearing
+  // the seen-version flag, so the modal reopens immediately without us routing state down.
+  useEffect(() => {
+    const onOpen = (): void => setWizardOpen(true)
+    window.addEventListener(SETUP_WIZARD_OPEN_EVENT, onOpen)
+    return () => window.removeEventListener(SETUP_WIZARD_OPEN_EVENT, onOpen)
+  }, [])
 
   const headerRight = latest
     ? `${new Date(latest.timestamp).toLocaleTimeString()}`
@@ -150,6 +181,20 @@ export default function App(): JSX.Element {
         {tab === 'system' && <SystemTab />}
         {tab === 'settings' && <SettingsTab />}
       </main>
+      <SetupWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onSkip={() => setWizardOpen(false)}
+        onDontShowAnymore={async () => {
+          try {
+            await window.api.setup.markWizardSeen()
+          } catch (e) {
+            console.error('[lst] setup.markWizardSeen failed:', e)
+          } finally {
+            setWizardOpen(false)
+          }
+        }}
+      />
     </div>
   )
 }

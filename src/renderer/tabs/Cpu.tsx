@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { Card } from '../components/Card'
 import { Gauge } from '../components/Gauge'
 import { Stat } from '../components/Stat'
@@ -6,6 +6,155 @@ import { PerCoreBars } from '../components/PerCoreBars'
 import { Sparkline, type Series } from '../components/Sparkline'
 import { useChartHistoryWindow, useLatest } from '../hooks'
 import { fmt, tempAccent } from '../format'
+import type { SetupCapabilities } from '@shared/types'
+
+const README_HASH = 'https://github.com/Mindsaver/linux-sensor-tray#zenpower-and-k10temp'
+
+/**
+ * CPU-tab banner shown only when zenpower is not bound. Capability-aware: drives the
+ * privileged zenpower setup via api.setup.configureZenpower() when pkexec is available,
+ * falls back to copy-to-clipboard sudo commands or a README link otherwise.
+ *
+ * The banner is hidden by the `!s.cpu.hasZenpower` parent gate; once setup succeeds,
+ * the next 1 Hz polling tick flips `hasZenpower` and the banner disappears automatically.
+ */
+function ZenpowerBanner(): JSX.Element | null {
+  const [caps, setCaps] = useState<SetupCapabilities | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  const cancelledRef = useRef(false)
+
+  const refresh = useCallback(async () => {
+    try {
+      const c = await window.api.setup.getCapabilities()
+      if (!cancelledRef.current) setCaps(c)
+    } catch (e) {
+      console.error('[ZenpowerBanner] getCapabilities failed:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    cancelledRef.current = false
+    void refresh()
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [refresh])
+
+  const copyCmd = useCallback(async (cmd: string) => {
+    try {
+      await navigator.clipboard.writeText(cmd)
+      setCopied(cmd)
+      window.setTimeout(() => setCopied(null), 2000)
+    } catch (e) {
+      console.error('[ZenpowerBanner] clipboard write failed:', e)
+    }
+  }, [])
+
+  if (!caps) return null
+  // Hidden on non-AMD CPUs — zenpower is AMD-only.
+  if (caps.cpuVendor !== 'AuthenticAMD') return null
+
+  const cliCmd = `sudo ${caps.cliPath ?? 'linux-sensor-tray-setup'} zenpower`
+  const aurHelper = caps.tools.yay ? 'yay' : caps.tools.paru ? 'paru' : null
+  const aurCmd = `${aurHelper ?? 'yay'} -S --needed zenpower3-dkms`
+  const dkmsInstalled = caps.optionalPkgs['zenpower3-dkms']
+  const canDriveSetup = !caps.cliMissing && caps.tools.pkexec
+
+  const onConfigure = async (): Promise<void> => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await window.api.setup.configureZenpower()
+      if (r.ok) {
+        setMsg({ kind: 'ok', text: 'zenpower configured. The banner will disappear on the next poll.' })
+      } else {
+        const detail = (r.stderr || r.error || '').trim().split('\n').slice(-2).join(' ')
+        setMsg({ kind: 'err', text: detail || `Failed (exit ${r.exitCode ?? '?'})` })
+      }
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(false)
+      void refresh()
+    }
+  }
+
+  return (
+    <Card title="Enable full Ryzen telemetry" className="col-span-12">
+      <p className="text-sm text-slate-300 leading-relaxed">
+        Bind the <span className="mono text-cyan-300">zenpower</span> hwmon driver to expose Vcore,
+        V SoC, per-CCD temps, and SVI2 power for your AMD CPU. Without it, only basic{' '}
+        <span className="mono text-slate-400">k10temp</span> data is available.
+      </p>
+
+      {!dkmsInstalled && (
+        <p className="mt-2 text-sm text-amber-200/90 leading-relaxed">
+          The <span className="mono">zenpower3-dkms</span> kernel module is not installed yet.
+          Install it via an AUR helper first (we don&apos;t run AUR builds from inside the app).
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {!dkmsInstalled && (
+          <button
+            type="button"
+            onClick={() => void copyCmd(aurCmd)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700"
+          >
+            {copied === aurCmd ? 'Copied!' : `Copy ${aurHelper ?? 'AUR helper'} command`}
+          </button>
+        )}
+        {canDriveSetup ? (
+          <button
+            type="button"
+            onClick={() => void onConfigure()}
+            disabled={busy || !dkmsInstalled}
+            title={!dkmsInstalled ? 'Install zenpower3-dkms first' : undefined}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 border border-cyan-500/30 disabled:opacity-40"
+          >
+            {busy ? 'Working…' : 'Configure zenpower (root)'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void copyCmd(cliCmd)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 text-cyan-200 hover:bg-slate-700 border border-slate-700"
+          >
+            {copied === cliCmd ? 'Copied!' : 'Copy sudo command'}
+          </button>
+        )}
+        <a
+          href={README_HASH}
+          target="_blank"
+          rel="noreferrer"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 no-underline"
+        >
+          Open README
+        </a>
+      </div>
+
+      {msg && (
+        <p
+          className={
+            'mt-2 text-xs leading-relaxed ' +
+            (msg.kind === 'ok' ? 'text-emerald-400/90' : 'text-amber-300/90 break-words')
+          }
+        >
+          {msg.text}
+        </p>
+      )}
+
+      {caps.cliMissing && (
+        <p className="mt-2 text-[11px] text-amber-300/90 leading-relaxed">
+          <strong className="font-semibold">linux-sensor-tray-setup not found.</strong> Update Linux
+          Sensor Tray (or install via AUR / install.sh) to enable the in-app Configure button.
+        </p>
+      )}
+    </Card>
+  )
+}
 
 export function CpuTab(): JSX.Element {
   const s = useLatest()
@@ -118,15 +267,7 @@ export function CpuTab(): JSX.Element {
         />
       </Card>
 
-      {!s.cpu.hasZenpower && (
-        <Card title="Tip" className="col-span-12">
-          <p className="text-sm text-slate-300 leading-relaxed">
-            For full Ryzen telemetry, install zenpower (e.g. <span className="mono text-cyan-300">zenpower3-dkms</span> on
-            Arch/CachyOS). Guide:{' '}
-            <span className="mono text-slate-400">https://github.com/Mindsaver/linux-sensor-tray#zenpower-and-k10temp</span>
-          </p>
-        </Card>
-      )}
+      {!s.cpu.hasZenpower && <ZenpowerBanner />}
     </div>
   )
 }

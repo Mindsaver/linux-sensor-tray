@@ -62,6 +62,7 @@ MANIFEST="${INSTALL_DIR}/install-manifest.json"
 ICON_NAME="linux-sensor-tray"
 ICON_DIR="${XDG_DATA_HOME}/icons/hicolor/512x512/apps"
 ICON_FILE="${ICON_DIR}/${ICON_NAME}.png"
+SETUP_CLI_PATH="${LOCAL_BIN}/linux-sensor-tray-setup"
 
 normalize_path() {
   python3 - <<'PY' "$1"
@@ -102,6 +103,7 @@ print_paths() {
   info "  Partial:     ${PARTIAL}"
   info "  Manifest:    ${MANIFEST}"
   info "  Bin link:    ${HOME}/.local/bin/linux-sensor-tray"
+  info "  Setup CLI:   ${SETUP_CLI_PATH}"
   info "  Desktop:     ${DESKTOP_FILE}"
 }
 
@@ -239,6 +241,19 @@ if [[ -e "$BIN_LINK" || -L "$BIN_LINK" ]]; then
 fi
 ln -s "$STABLE_APPIMAGE" "$BIN_LINK"
 
+# Ship the standalone setup CLI alongside the AppImage so optional steps (zenpower,
+# polkit-rule, install-deps) are available from the terminal AND from the in-app wizard.
+SETUP_CLI_URL="https://raw.githubusercontent.com/${REPO}/main/scripts/linux-sensor-tray-setup"
+info "Installing setup CLI to ${SETUP_CLI_PATH}…"
+if curl -fSL -o "${SETUP_CLI_PATH}.partial" "$SETUP_CLI_URL"; then
+  chmod 755 "${SETUP_CLI_PATH}.partial"
+  mv -f "${SETUP_CLI_PATH}.partial" "$SETUP_CLI_PATH"
+else
+  rm -f "${SETUP_CLI_PATH}.partial"
+  warn "Could not download setup CLI from ${SETUP_CLI_URL}; optional zenpower / polkit setup will be skipped."
+  SETUP_CLI_PATH=""
+fi
+
 cat >"$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Name=Linux Sensor Tray
@@ -283,38 +298,34 @@ want_configure_zenpower() {
 }
 
 configure_zenpower_blacklist() {
+  if [[ -z "$SETUP_CLI_PATH" || ! -x "$SETUP_CLI_PATH" ]]; then
+    err "Setup CLI is missing; cannot configure zenpower."
+    return 1
+  fi
   if ! command -v sudo >/dev/null 2>&1; then
-    err "sudo not found; cannot write modprobe config."
+    err "sudo not found; cannot configure zenpower."
     return 1
   fi
-  info "Writing ${K10TEMP_BLACKLIST_FILE} (sudo)…"
-  if ! printf '%s\n' \
-    '# linux-sensor-tray: blacklist k10temp so zenpower can bind (managed by install.sh / uninstall.sh)' \
-    'blacklist k10temp' | sudo tee "$K10TEMP_BLACKLIST_FILE" >/dev/null; then
-    err "Failed to write ${K10TEMP_BLACKLIST_FILE}."
-    return 1
-  fi
-  info "Reloading modules (sudo)…"
-  sudo modprobe -r k10temp 2>/dev/null || warn "Could not unload k10temp (in use or built-in)."
-  if sudo modprobe zenpower 2>/dev/null; then
-    ok "zenpower loaded."
+  info "Running: sudo ${SETUP_CLI_PATH} zenpower"
+  if sudo "$SETUP_CLI_PATH" zenpower; then
+    LST_K10TEMP_BLACKLIST=1
   else
-    warn "zenpower did not load. Install it (e.g. zenpower3-dkms on Arch/CachyOS), then reboot or: sudo modprobe zenpower"
+    err "linux-sensor-tray-setup zenpower failed."
+    return 1
   fi
-  LST_K10TEMP_BLACKLIST=1
 }
 
 if is_amd_cpu && want_configure_zenpower; then
   configure_zenpower_blacklist || true
 fi
 
-export REPO STABLE_APPIMAGE DESKTOP_FILE BIN_LINK MACHINE LST_K10TEMP_BLACKLIST K10TEMP_BLACKLIST_FILE ICON_FILE
+export REPO STABLE_APPIMAGE DESKTOP_FILE BIN_LINK MACHINE LST_K10TEMP_BLACKLIST K10TEMP_BLACKLIST_FILE ICON_FILE SETUP_CLI_PATH
 rm -f "$MANIFEST"
 python3 - <<'PY' >"$MANIFEST"
 import json, os
 
 data = {
-    "version": 2,
+    "version": 3,
     "repo": os.environ["REPO"],
     "appimage": os.environ["STABLE_APPIMAGE"],
     "desktop": os.environ["DESKTOP_FILE"],
@@ -322,14 +333,20 @@ data = {
     "icon": os.environ.get("ICON_FILE", ""),
     "machine": os.environ.get("MACHINE", ""),
 }
+setup_cli = os.environ.get("SETUP_CLI_PATH") or ""
+if setup_cli:
+    data["setup_cli"] = setup_cli
 if os.environ.get("LST_K10TEMP_BLACKLIST"):
     data["k10temp_blacklist_file"] = os.environ["K10TEMP_BLACKLIST_FILE"]
 print(json.dumps(data, indent=2))
 PY
 
 ok "Linux Sensor Tray installed."
-info "  AppImage: ${STABLE_APPIMAGE}"
-info "  Command:  ${BIN_LINK} (ensure ~/.local/bin is on PATH)"
+info "  AppImage:  ${STABLE_APPIMAGE}"
+info "  Command:   ${BIN_LINK} (ensure ~/.local/bin is on PATH)"
+if [[ -n "$SETUP_CLI_PATH" && -x "$SETUP_CLI_PATH" ]]; then
+  info "  Setup CLI: ${SETUP_CLI_PATH}"
+fi
 info "  Uninstall: curl -fsSL https://raw.githubusercontent.com/${REPO%%/*}/${REPO#*/}/main/scripts/uninstall.sh | bash"
 warn "Keep the AppImage at this path so in-app auto-updates can replace it."
 
@@ -339,9 +356,12 @@ command -v pkexec >/dev/null 2>&1 || missing+=("polkit (pkexec)")
 if (( ${#missing[@]} > 0 )); then
   echo
   warn "Optional: System info enrichment needs: ${missing[*]}"
-  if command -v pacman >/dev/null 2>&1; then
-    info "Arch/CachyOS: sudo pacman -S --needed lshw polkit"
+  if [[ -n "$SETUP_CLI_PATH" && -x "$SETUP_CLI_PATH" ]]; then
+    info "  ${SETUP_CLI_PATH} doctor              (full setup status)"
+    info "  sudo ${SETUP_CLI_PATH} install-deps lshw polkit"
+  elif command -v pacman >/dev/null 2>&1; then
+    info "  Arch/CachyOS: sudo pacman -S --needed lshw polkit"
   else
-    info "Install via your distro package manager: lshw + polkit (pkexec)"
+    info "  Install via your distro package manager: lshw + polkit (pkexec)"
   fi
 fi

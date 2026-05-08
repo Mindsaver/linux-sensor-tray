@@ -14,7 +14,8 @@ const DEFAULTS: AppSettings = {
   diskLogDirectory: null,
   trayEnabled: true,
   openAtLogin: false,
-  privilegedSystemProbe: 'onDemand'
+  privilegedSystemProbe: 'onDemand',
+  setupWizardSeenForVersion: ''
 }
 
 const PRIVILEGED_PROBE_MODES: readonly PrivilegedSystemProbeMode[] = ['off', 'onDemand', 'always']
@@ -63,6 +64,10 @@ function clampSettings(partial: AppSettings): AppSettings {
           ? (p as PrivilegedSystemProbeMode)
           : DEFAULTS.privilegedSystemProbe
 
+  const wizSeenRaw = partial.setupWizardSeenForVersion
+  const setupWizardSeenForVersion =
+    typeof wizSeenRaw === 'string' ? wizSeenRaw.trim() : DEFAULTS.setupWizardSeenForVersion
+
   return {
     historyRetentionMinutes: history,
     chartWindowMinutes: chart,
@@ -71,7 +76,8 @@ function clampSettings(partial: AppSettings): AppSettings {
     diskLogDirectory,
     trayEnabled,
     openAtLogin: Boolean(partial.openAtLogin),
-    privilegedSystemProbe
+    privilegedSystemProbe,
+    setupWizardSeenForVersion
   }
 }
 

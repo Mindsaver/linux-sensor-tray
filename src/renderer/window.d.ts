@@ -2,6 +2,9 @@ import type {
   AppSettings,
   AppSettingsResolved,
   SensorSnapshot,
+  SetupCapabilities,
+  SetupCommandResult,
+  SetupWizardState,
   SystemInfoSnapshot,
   TaskMonitorSnapshot
 } from '@shared/types'
@@ -12,6 +15,18 @@ type PolkitRuleStatus = {
   readable: boolean
   matchesShippedRule: boolean | null
   path: string
+}
+
+type SetupApi = {
+  getCapabilities(): Promise<SetupCapabilities>
+  getWizardState(): Promise<SetupWizardState>
+  markWizardSeen(): Promise<SetupWizardState>
+  resetWizardSeen(): Promise<SetupWizardState>
+  configureZenpower(): Promise<SetupCommandResult>
+  revertZenpower(): Promise<SetupCommandResult>
+  installPolkitRule(): Promise<SetupCommandResult>
+  removePolkitRule(): Promise<SetupCommandResult>
+  installDeps(packages: string[]): Promise<SetupCommandResult>
 }
 
 type PreloadApi = {
@@ -29,6 +44,7 @@ type PreloadApi = {
   installPolkitRule(): Promise<PolkitRuleStatus>
   uninstallPolkitRule(): Promise<PolkitRuleStatus>
   getAppIconDataUrl(size?: number): Promise<string>
+  setup: SetupApi
 }
 
 declare global {

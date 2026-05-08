@@ -30,6 +30,13 @@ import { collectSystemInfo } from './systemInfo'
 import { getPolkitRuleStatus, installPolkitRule, uninstallPolkitRule } from './linuxPolkitRule'
 import { collectTaskMonitorSnapshot } from './tasks'
 import {
+  computeWizardState,
+  getSetupCapabilities,
+  markSetupWizardSeen,
+  resetSetupWizardSeen,
+  runSetupCommand
+} from './setup'
+import {
   IPC_CHANNEL_SNAPSHOT,
   type AppSettings,
   type AppSettingsResolved,
@@ -274,6 +281,35 @@ app.whenReady().then(async () => {
   ipcMain.handle('polkit:ruleStatus', () => getPolkitRuleStatus())
   ipcMain.handle('polkit:installRule', () => installPolkitRule())
   ipcMain.handle('polkit:uninstallRule', () => uninstallPolkitRule())
+  ipcMain.handle('setup:capabilities', () => getSetupCapabilities({ force: true }))
+  ipcMain.handle('setup:wizardState', () => computeWizardState())
+  ipcMain.handle('setup:markWizardSeen', () => markSetupWizardSeen())
+  ipcMain.handle('setup:resetWizardSeen', () => resetSetupWizardSeen())
+  ipcMain.handle('setup:configureZenpower', () =>
+    runSetupCommand(['zenpower'], { privileged: true })
+  )
+  ipcMain.handle('setup:revertZenpower', () =>
+    runSetupCommand(['zenpower', '--revert'], { privileged: true })
+  )
+  ipcMain.handle('setup:installPolkitRule', () =>
+    runSetupCommand(['polkit-rule'], { privileged: true })
+  )
+  ipcMain.handle('setup:removePolkitRule', () =>
+    runSetupCommand(['polkit-rule', '--remove'], { privileged: true })
+  )
+  ipcMain.handle('setup:installDeps', (_e, packages: string[]) => {
+    const safe = Array.isArray(packages) ? packages.filter((p) => typeof p === 'string' && p.length > 0) : []
+    if (safe.length === 0) {
+      return Promise.resolve({
+        ok: false,
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        error: 'No packages requested.'
+      })
+    }
+    return runSetupCommand(['install-deps', ...safe], { privileged: true })
+  })
   ipcMain.handle('settings:get', () => resolvedSettings())
   ipcMain.handle('settings:set', async (_e, partial: Partial<AppSettings>) => {
     const merged = await saveSettings(partial)

@@ -4,6 +4,9 @@ import {
   type AppSettings,
   type AppSettingsResolved,
   type SensorSnapshot,
+  type SetupCapabilities,
+  type SetupCommandResult,
+  type SetupWizardState,
   type TaskMonitorSnapshot,
   type SystemInfoSnapshot
 } from '@shared/types'
@@ -72,6 +75,35 @@ const api = {
    */
   getAppIconDataUrl(size?: number): Promise<string> {
     return ipcRenderer.invoke('app:getIconDataUrl', size) as Promise<string>
+  },
+  setup: {
+    getCapabilities(): Promise<SetupCapabilities> {
+      return ipcRenderer.invoke('setup:capabilities') as Promise<SetupCapabilities>
+    },
+    getWizardState(): Promise<SetupWizardState> {
+      return ipcRenderer.invoke('setup:wizardState') as Promise<SetupWizardState>
+    },
+    markWizardSeen(): Promise<SetupWizardState> {
+      return ipcRenderer.invoke('setup:markWizardSeen') as Promise<SetupWizardState>
+    },
+    resetWizardSeen(): Promise<SetupWizardState> {
+      return ipcRenderer.invoke('setup:resetWizardSeen') as Promise<SetupWizardState>
+    },
+    configureZenpower(): Promise<SetupCommandResult> {
+      return ipcRenderer.invoke('setup:configureZenpower') as Promise<SetupCommandResult>
+    },
+    revertZenpower(): Promise<SetupCommandResult> {
+      return ipcRenderer.invoke('setup:revertZenpower') as Promise<SetupCommandResult>
+    },
+    installPolkitRule(): Promise<SetupCommandResult> {
+      return ipcRenderer.invoke('setup:installPolkitRule') as Promise<SetupCommandResult>
+    },
+    removePolkitRule(): Promise<SetupCommandResult> {
+      return ipcRenderer.invoke('setup:removePolkitRule') as Promise<SetupCommandResult>
+    },
+    installDeps(packages: string[]): Promise<SetupCommandResult> {
+      return ipcRenderer.invoke('setup:installDeps', packages) as Promise<SetupCommandResult>
+    }
   }
 }
 

@@ -1,0 +1,374 @@
+#!/usr/bin/env bash
+# linux-sensor-tray-setup — privileged-feature configuration helper.
+#
+# Subcommands:
+#   zenpower [--revert]      Bind the zenpower hwmon driver (AMD only); --revert restores k10temp.
+#   polkit-rule [--remove]   Install or remove the always-on lshw polkit rule.
+#   install-deps PKG...      Install repo packages via the host package manager (pacman/apt/dnf/zypper).
+#   doctor [--json]          Report current setup state. --json is consumed by the in-app wizard.
+#   --help, -h               Show this help text.
+#
+# Exit codes:
+#   0  success
+#   1  generic error
+#   2  unsupported hardware (e.g. zenpower on Intel)
+#   3  missing root (action subcommand invoked without EUID 0)
+#   4  AUR-only package requested (e.g. zenpower3-dkms via install-deps)
+#   5  unknown package manager / unsupported distro
+#
+# This script never calls sudo itself — the caller (terminal sudo, pkexec, install.sh)
+# handles elevation. Keeps the script auditable and lets pkexec rules be authored cleanly.
+
+set -euo pipefail
+
+K10TEMP_BLACKLIST_FILE="/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf"
+POLKIT_RULE_PATH="/etc/polkit-1/rules.d/49-linux-sensor-tray.rules"
+
+# This must stay byte-for-byte identical to PRIVILEGED_PROBE_POLKIT_RULES in src/shared/types.ts.
+# linuxPolkitRule.ts compares installed rule content against the in-process constant; if they
+# diverge we report "rule installed but does not match shipped content".
+read -r -d '' POLKIT_RULE_BODY <<'POLKITEOF' || true
+polkit.addRule(function(action, subject) {
+  if (action.id !== "org.freedesktop.policykit.exec") return;
+  var prog = action.lookup("program");
+  if (prog !== "/usr/sbin/lshw" && prog !== "/usr/bin/lshw") return;
+  if (subject.isInGroup("wheel")) return polkit.Result.YES;
+});
+POLKITEOF
+
+if [[ -t 1 ]]; then
+  CYAN=$'\033[0;36m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; RED=$'\033[0;31m'; RESET=$'\033[0m'
+else
+  CYAN=""; GREEN=""; YELLOW=""; RED=""; RESET=""
+fi
+info()  { printf '%s%s%s\n' "$CYAN"   "$*" "$RESET"; }
+ok()    { printf '%s%s%s\n' "$GREEN"  "$*" "$RESET"; }
+warn()  { printf '%s%s%s\n' "$YELLOW" "$*" "$RESET"; }
+err()   { printf '%s%s%s\n' "$RED"    "$*" "$RESET" >&2; }
+
+require_root() {
+  if [[ $EUID -ne 0 ]]; then
+    err "This action must run as root. Re-run with: sudo ${INVOCATION_HINT}"
+    err "(GUI: pkexec ${INVOCATION_HINT})"
+    exit 3
+  fi
+}
+
+is_amd_cpu() {
+  [[ -r /proc/cpuinfo ]] && grep -q "AuthenticAMD" /proc/cpuinfo
+}
+
+cpu_vendor() {
+  if [[ ! -r /proc/cpuinfo ]]; then echo "other"; return; fi
+  if grep -q "AuthenticAMD" /proc/cpuinfo; then echo "AuthenticAMD"
+  elif grep -q "GenuineIntel" /proc/cpuinfo; then echo "GenuineIntel"
+  else echo "other"; fi
+}
+
+detect_distro_id() {
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    echo "${ID:-unknown}"
+  else
+    echo "unknown"
+  fi
+}
+
+detect_distro_id_like() {
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    echo "${ID_LIKE:-}"
+  fi
+}
+
+# Pick a package manager binary; first match wins. arch-family takes priority because /usr/bin/apt
+# does not exist there but the inverse is also true on Debian where pacman is missing.
+detect_pkg_manager() {
+  if   command -v pacman   >/dev/null 2>&1; then echo "pacman"
+  elif command -v apt-get  >/dev/null 2>&1; then echo "apt"
+  elif command -v dnf      >/dev/null 2>&1; then echo "dnf"
+  elif command -v zypper   >/dev/null 2>&1; then echo "zypper"
+  else echo "unknown"; fi
+}
+
+is_module_loaded() {
+  local mod="$1"
+  [[ -d "/sys/module/$mod" ]] || lsmod 2>/dev/null | awk '{print $1}' | grep -qx "$mod"
+}
+
+zenpower_action() {
+  local revert=false
+  if [[ "${1:-}" == "--revert" ]]; then revert=true; fi
+
+  if ! is_amd_cpu; then
+    err "zenpower is for AMD CPUs only (this CPU vendor: $(cpu_vendor))."
+    exit 2
+  fi
+  require_root "$@"
+
+  if [[ "$revert" == true ]]; then
+    if [[ -f "$K10TEMP_BLACKLIST_FILE" ]]; then
+      info "Removing $K10TEMP_BLACKLIST_FILE…"
+      rm -f "$K10TEMP_BLACKLIST_FILE"
+    else
+      info "$K10TEMP_BLACKLIST_FILE not present; nothing to remove."
+    fi
+    info "Reloading modules (zenpower → k10temp)…"
+    modprobe -r zenpower 2>/dev/null || warn "Could not unload zenpower (in use or not loaded)."
+    if modprobe k10temp 2>/dev/null; then
+      ok "k10temp loaded."
+    else
+      warn "k10temp did not load immediately; reboot may be required."
+    fi
+    return 0
+  fi
+
+  info "Writing $K10TEMP_BLACKLIST_FILE…"
+  printf '%s\n' \
+    '# linux-sensor-tray: blacklist k10temp so zenpower can bind (managed by linux-sensor-tray-setup)' \
+    'blacklist k10temp' >"$K10TEMP_BLACKLIST_FILE"
+
+  info "Reloading modules (k10temp → zenpower)…"
+  modprobe -r k10temp 2>/dev/null || warn "Could not unload k10temp (in use or built-in)."
+  if modprobe zenpower 2>/dev/null; then
+    ok "zenpower loaded."
+  else
+    warn "zenpower module not found. Install it (e.g. zenpower3-dkms on Arch/CachyOS),"
+    warn "then reboot or run: sudo modprobe zenpower"
+  fi
+}
+
+polkit_rule_action() {
+  local remove=false
+  if [[ "${1:-}" == "--remove" ]]; then remove=true; fi
+
+  require_root "$@"
+  if [[ "$remove" == true ]]; then
+    if [[ -f "$POLKIT_RULE_PATH" ]]; then
+      info "Removing $POLKIT_RULE_PATH…"
+      rm -f "$POLKIT_RULE_PATH"
+      ok "Polkit rule removed."
+    else
+      info "$POLKIT_RULE_PATH not present; nothing to remove."
+    fi
+    return 0
+  fi
+
+  info "Installing $POLKIT_RULE_PATH…"
+  install -d -m 0755 "$(dirname "$POLKIT_RULE_PATH")"
+  printf '%s\n' "$POLKIT_RULE_BODY" >"$POLKIT_RULE_PATH"
+  chmod 0644 "$POLKIT_RULE_PATH"
+  ok "Polkit rule installed (members of group 'wheel' skip the prompt for /usr/[s]bin/lshw)."
+}
+
+install_deps_action() {
+  if [[ $# -lt 1 ]]; then
+    err "install-deps requires at least one package name."
+    exit 1
+  fi
+
+  # Reject known AUR-only packages early (CLI is only allowed to drive system pkg managers).
+  for pkg in "$@"; do
+    case "$pkg" in
+      zenpower3-dkms | zenpower-dkms)
+        err "$pkg is an AUR package; install-deps cannot install it."
+        err "Use an AUR helper instead, e.g.:  yay -S --needed $pkg"
+        exit 4
+        ;;
+    esac
+  done
+
+  require_root "$@"
+
+  local pm
+  pm="$(detect_pkg_manager)"
+  case "$pm" in
+    pacman) info "pacman -S --needed --noconfirm $*"; pacman -S --needed --noconfirm "$@" ;;
+    apt)    info "apt-get update && apt-get install -y $*"; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" ;;
+    dnf)    info "dnf install -y $*"; dnf install -y "$@" ;;
+    zypper) info "zypper --non-interactive install $*"; zypper --non-interactive install "$@" ;;
+    unknown)
+      err "No supported package manager found (looked for pacman, apt-get, dnf, zypper)."
+      err "Install these manually for your distro: $*"
+      exit 5
+      ;;
+  esac
+}
+
+# True when the named package is registered with the host package manager.
+pkg_installed() {
+  local pkg="$1"
+  if   command -v pacman  >/dev/null 2>&1; then pacman -Qq "$pkg" >/dev/null 2>&1
+  elif command -v dpkg    >/dev/null 2>&1; then dpkg -s "$pkg" >/dev/null 2>&1
+  elif command -v rpm     >/dev/null 2>&1; then rpm -q "$pkg" >/dev/null 2>&1
+  else return 1; fi
+}
+
+# Bash JSON serializer: enough for the small shapes we emit.
+# Escapes \ and " and converts CR/LF in input strings.
+json_str() {
+  local s="${1:-}"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\n'/\\n}"
+  printf '"%s"' "$s"
+}
+
+json_bool() { if [[ "$1" == "true" ]]; then printf 'true'; else printf 'false'; fi; }
+
+bool_str() {
+  if [[ "$1" -eq 0 || "$1" == "true" ]] 2>/dev/null; then printf 'true'; else printf 'false'; fi
+}
+
+bool_from_test() {
+  if "$@" >/dev/null 2>&1; then printf 'true'; else printf 'false'; fi
+}
+
+doctor_action() {
+  local json=false
+  if [[ "${1:-}" == "--json" ]]; then json=true; fi
+
+  local cpu_vendor_v distro_id distro_id_like pm
+  cpu_vendor_v="$(cpu_vendor)"
+  distro_id="$(detect_distro_id)"
+  distro_id_like="$(detect_distro_id_like)"
+  pm="$(detect_pkg_manager)"
+
+  local has_zenpower has_k10temp blacklist_present
+  has_zenpower="$(bool_from_test is_module_loaded zenpower)"
+  has_k10temp="$(bool_from_test is_module_loaded k10temp)"
+  blacklist_present="$(bool_from_test test -f "$K10TEMP_BLACKLIST_FILE")"
+
+  local polkit_rule_installed
+  polkit_rule_installed="$(bool_from_test test -f "$POLKIT_RULE_PATH")"
+
+  local has_pkexec has_lshw has_yay has_paru
+  has_pkexec="$(bool_from_test command -v pkexec)"
+  has_lshw="$(bool_from_test command -v lshw)"
+  has_yay="$(bool_from_test command -v yay)"
+  has_paru="$(bool_from_test command -v paru)"
+
+  local opt_lshw opt_polkit opt_zenpower
+  opt_lshw="$(bool_from_test pkg_installed lshw)"
+  opt_polkit="$(bool_from_test pkg_installed polkit)"
+  opt_zenpower="$(bool_from_test pkg_installed zenpower3-dkms)"
+  if [[ "$opt_zenpower" == "false" ]]; then
+    opt_zenpower="$(bool_from_test pkg_installed zenpower-dkms)"
+  fi
+
+  if [[ "$json" == true ]]; then
+    # ID_LIKE in /etc/os-release is space-separated; emit as JSON array.
+    local id_like_json="[]"
+    if [[ -n "$distro_id_like" ]]; then
+      local first=true
+      id_like_json="["
+      for it in $distro_id_like; do
+        if [[ "$first" == true ]]; then first=false; else id_like_json+=","; fi
+        id_like_json+="$(json_str "$it")"
+      done
+      id_like_json+="]"
+    fi
+    cat <<EOF
+{
+  "version": 1,
+  "cpuVendor": $(json_str "$cpu_vendor_v"),
+  "distro": {
+    "id": $(json_str "$distro_id"),
+    "idLike": $id_like_json,
+    "pkgManager": $(json_str "$pm")
+  },
+  "hwmon": {
+    "zenpower": $has_zenpower,
+    "k10temp": $has_k10temp,
+    "blacklistFile": $(json_str "$K10TEMP_BLACKLIST_FILE"),
+    "blacklistInstalled": $blacklist_present
+  },
+  "polkitRule": {
+    "installed": $polkit_rule_installed,
+    "path": $(json_str "$POLKIT_RULE_PATH")
+  },
+  "tools": {
+    "pkexec": $has_pkexec,
+    "lshw": $has_lshw,
+    "yay": $has_yay,
+    "paru": $has_paru
+  },
+  "optionalPkgs": {
+    "lshw": $opt_lshw,
+    "polkit": $opt_polkit,
+    "zenpower3-dkms": $opt_zenpower
+  }
+}
+EOF
+    return 0
+  fi
+
+  info "Linux Sensor Tray — setup status"
+  echo
+  printf '  CPU vendor       : %s\n' "$cpu_vendor_v"
+  printf '  Distro           : %s (pkg manager: %s)\n' "$distro_id" "$pm"
+  if [[ -n "$distro_id_like" ]]; then
+    printf '  Distro family    : %s\n' "$distro_id_like"
+  fi
+  echo
+  info "  hwmon driver"
+  printf '    zenpower loaded     : %s\n' "$has_zenpower"
+  printf '    k10temp loaded      : %s\n' "$has_k10temp"
+  printf '    blacklist file      : %s (%s)\n' "$blacklist_present" "$K10TEMP_BLACKLIST_FILE"
+  echo
+  info "  polkit"
+  printf '    rule installed      : %s (%s)\n' "$polkit_rule_installed" "$POLKIT_RULE_PATH"
+  echo
+  info "  tools / optional packages"
+  printf '    pkexec              : %s\n' "$has_pkexec"
+  printf '    lshw                : %s (pkg installed: %s)\n' "$has_lshw" "$opt_lshw"
+  printf '    polkit pkg          : %s\n' "$opt_polkit"
+  printf '    yay / paru          : yay=%s paru=%s\n' "$has_yay" "$has_paru"
+  printf '    zenpower3-dkms      : %s\n' "$opt_zenpower"
+  echo
+  if [[ "$cpu_vendor_v" == "AuthenticAMD" && "$has_zenpower" != "true" ]]; then
+    warn "Suggestion: AMD CPU detected without zenpower bound."
+    info "  yay -S --needed zenpower3-dkms      (install module)"
+    info "  sudo $0 zenpower                    (blacklist k10temp + load zenpower)"
+  fi
+  if [[ "$polkit_rule_installed" != "true" ]]; then
+    info "Optional: sudo $0 polkit-rule         (skip pkexec prompt for lshw)"
+  fi
+  if [[ "$opt_lshw" != "true" || "$opt_polkit" != "true" ]]; then
+    info "Optional: sudo $0 install-deps lshw polkit"
+  fi
+}
+
+usage() {
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    usage
+    exit 0
+  fi
+  # Captured for require_root's "re-run with sudo" hint; kept as-typed (not shell-quoted),
+  # which is fine because subcommand names + flags here are all single tokens.
+  INVOCATION_HINT="$0 $*"
+  local cmd="$1"
+  shift
+  case "$cmd" in
+    zenpower)        zenpower_action "$@" ;;
+    polkit-rule)     polkit_rule_action "$@" ;;
+    install-deps)    install_deps_action "$@" ;;
+    doctor)          doctor_action "$@" ;;
+    -h | --help | help) usage ;;
+    *)
+      err "Unknown subcommand: $cmd"
+      echo
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

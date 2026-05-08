@@ -1,6 +1,6 @@
 {
   "name": "linux-sensor-tray",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Linux Sensor Tray — tray-first CPU, GPU, mainboard, and storage stats",
   "author": "Linux Sensor Tray contributors",
   "main": "out/main/index.js",

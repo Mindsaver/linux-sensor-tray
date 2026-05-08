@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { Card } from '../components/Card'
+import { SetupStatus } from '../components/SetupStatus'
 import type { SystemInfoSnapshot } from '@shared/types'
 import { fmt } from '../format'
 import { useSensorTray } from '../store'
@@ -105,6 +106,14 @@ export function SystemTab(): JSX.Element {
       {err && (
         <div className="rounded-xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-100">{err}</div>
       )}
+
+      <Card
+        title="Hardware setup"
+        subtitle="Optional packages, kernel modules, and polkit rules that unlock richer sensor + system data"
+      >
+        <SetupStatus />
+      </Card>
+
 
       {data?.privilegedProbeHint && data.lshwExtras?.probeSource !== 'pkexec' && (
         <div className="rounded-lg border border-cyan-500/30 bg-slate-900/40 px-3 py-2 text-[12px] text-slate-300 leading-snug space-y-2">

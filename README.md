@@ -1,38 +1,96 @@
 # Linux Sensor Tray
 
-Tray-first Electron app for live CPU, GPU, mainboard, and storage stats on Linux (built and tested on CachyOS with a Ryzen 7 5700X + Radeon RX 9070 XT). It reads sensors from `/sys/class/hwmon` and `/proc` — no daemon and no `sudo` for normal use.
+Tray-first Electron app for live CPU, GPU, mainboard, storage, and memory stats on Linux. Reads sensors directly from `/sys/class/hwmon` and `/proc` — **no daemon** and **no `sudo` for normal use**.
 
-Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray).
+- **Repository**: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsaver/linux-sensor-tray)
+- **Screenshot**:
 
 ![Linux Sensor Tray main window](docs/Screenshot.png)
 
-## Install from AUR (Arch / CachyOS / EndeavourOS / Manjaro)
+## Install (recommended): Arch-based distros (AUR)
 
-Available as both a binary repackage of the AppImage (recommended for most users) and a from-source build using system Electron 41:
+If you’re on Arch / CachyOS / EndeavourOS / Manjaro, this is the default path.
 
 ```bash
-yay -S linux-sensor-tray-bin    # fast, repackages the official AppImage
-# or
-yay -S linux-sensor-tray         # builds from source against system electron41
+yay -S linux-sensor-tray-bin
 ```
 
-Either package conflicts with the other and both register `linux-sensor-tray` as the command and `.desktop` entry. Updates roll out automatically on `yay -Syu` after every release — the PKGBUILDs in [`aur/`](aur/) are the source of truth and are pushed to AUR by CI.
+- Installs `linux-sensor-tray` + `.desktop` entry and updates on `yay -Syu`.
+- There is also a from-source AUR package (builds against system `electron41`):
 
-## Quick install (AppImage)
+```bash
+yay -S linux-sensor-tray
+```
+
+The PKGBUILDs in [`aur/`](aur/) are the source of truth and are pushed to AUR by CI. (`linux-sensor-tray` and `linux-sensor-tray-bin` conflict with each other.)
+
+## Run
+
+Launch from your app menu, or run:
+
+```bash
+linux-sensor-tray
+```
+
+Closing the window keeps it in the tray. Use tray menu → **Quit** to stop.
+
+## What it shows
+
+- **CPU**: total + per-core load/frequency, temps, and (with `zenpower`) extra power/voltage/current and per-CCD detail
+- **GPU** (`amdgpu`): usage, temps (edge/junction/memory), clocks, fan, power (PPT), plus read-only tuning state
+- **Mainboard**: fans, temps, voltages (when your Super I/O driver exposes them)
+- **Storage**: NVMe composite temperature per drive
+- **Memory**: RAM + swap usage
+
+If you tune AMDGPU with **[LACT](https://github.com/ilya-zlobintsev/LACT)** (or similar), those settings become visible once the driver exposes them.
+
+## History viewer and disk logging
+
+The **Storage** tab shows **live NVMe temperatures** regardless of logging. Disk logging only runs when enabled in **Settings**.
+
+- **Default**: logging is **off**
+- **Format**: JSON Lines (1 JSON object per second per line)
+- **Filename**: `linux-sensor-tray-YYYY-MM-DD.jsonl` (older installs may use `monitor-*.jsonl`)
+- **Default folder**: usually `~/.config/linux-sensor-tray/sensor_logs/` (Electron `userData/sensor_logs`)
+
+On startup, the app writes `history-viewer.html` next to your logs (both the default log directory and your custom directory, if set). Open it in any browser and drag/drop `.jsonl` files to view offline synced charts (zoom + pan supported).
+
+## Requirements
+
+- Linux with hwmon/sysfs enabled
+- Node.js 20+ and npm (only needed for “run from source” / building)
+- Full feature set is aimed at **AMD CPU + AMD discrete GPU**, but the app degrades gracefully when sysfs nodes are missing
+
+Recommended kernel modules (hardware-dependent):
+- `zenpower` (Zen 1–4): more CPU sensors (otherwise the app falls back to `k10temp`)
+- `nct6687d` (only if your board uses NCT6687D and it didn’t autoload)
+
+## System info enrichment (optional)
+
+The System info tab can optionally run a privileged `lshw` probe for richer SMBIOS data.
+
+- **On demand**: click **Enrich with root data** (polkit prompt)
+- **Always**: runs on every refresh (recommended only with a polkit rule installed)
+
+<details>
+<summary><strong>Optional: AppImage install (any distro)</strong></summary>
+
+### Quick install (AppImage)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- Mindsaver/linux-sensor-tray
 ```
 
-- Installs to: `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`
-- Adds command: `~/.local/bin/linux-sensor-tray`
-- The installer will show what it changes and ask for confirmation. For non-interactive installs, pass `--yes`:
+- Installs to `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`
+- Adds `~/.local/bin/linux-sensor-tray`
+
+Non-interactive:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --yes Mindsaver/linux-sensor-tray
 ```
 
-Dry run (prints actions + paths; makes no changes):
+Dry run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --dry-run Mindsaver/linux-sensor-tray
@@ -50,22 +108,21 @@ Dry run:
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/uninstall.sh | bash -s -- --dry-run
 ```
 
-## Security / trust notes
+### Security / trust notes
 
-- The quick installer is convenience. If you are unsure, download and inspect `scripts/install.sh` before running it.
-- The installer is **safe-by-default** (no `sudo` for normal install) and prints what it will change.
-- Optional steps (like zenpower setup) require explicit confirmation before any `sudo` changes.
-- Use `--dry-run` to preview paths and actions.
+- The installer is convenience. If you’re unsure, inspect `scripts/install.sh` before running it.
+- Safe-by-default: no `sudo` for normal install; optional privileged steps require explicit confirmation (or flags).
+- Preview actions and paths with `--dry-run`.
 
-Tip: to print the install locations without installing, use:
+Tip: print install locations without installing:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --print-paths --dry-run Mindsaver/linux-sensor-tray
 ```
 
-## Verify release asset (recommended)
+### Verify release asset (recommended)
 
-For AppImage installs, prefer downloading from GitHub Releases and verifying checksums:
+Prefer downloading from GitHub Releases and verifying checksums:
 
 ```bash
 # Example (replace VERSION / filename with the one from the release page)
@@ -74,62 +131,24 @@ sha256sum -c linux-sensor-tray-<VERSION>.AppImage.sha256
 
 See also: `SECURITY.md`.
 
-## What it shows
+</details>
 
-- **CPU**: total + per-core load and frequency, Tctl/Tdie, per-CCD temps, Vcore, V SoC, P Core, P SoC, I Core, I SoC
-- **CPU tuning** (read-only sysfs): cpufreq driver, governor, `amd_pstate` status, EPP, hardware vs scaling frequency limits, optional BIOS limit, parsed boost steps — useful to see how high the OS/BIOS allows the chip to go (not a full “Ryzen Master” view; PBO/CO are not exposed as one sysfs blob).
-- **GPU** (`amdgpu`): GPU usage (`gpu_busy_percent`), edge/junction/memory temperatures, vddgfx, package power (PPT) with cap, core/memory clocks, fan RPM and PWM duty
-- **GPU tuning** (read-only sysfs): `power_dpm_force_performance_level`, DPM state, power profile text, `pp_dpm_sclk` / `pp_dpm_mclk` tables, `pp_od_clk_voltage` when the driver exposes it, plus PPT default/max/min when available. If you apply OC with **[LACT](https://github.com/ilya-zlobintsev/LACT)** (or similar), those settings show up here once the driver is in the right mode (e.g. Overdrive enabled).
-- **Mainboard** (super-IO chip, e.g. `nct6687`): all reported voltages, fan RPMs, mainboard temperatures
-- **Storage**: NVMe composite temperature per drive
-- **Memory**: RAM and swap usage
+<details>
+<summary><strong>Optional: zenpower setup (more AMD CPU sensors)</strong></summary>
 
-The Overview tab gives a single-page glanceable dashboard. The **Overclock** tab groups CPU frequency limits and AMDGPU DPM/overdrive sysfs. The CPU and GPU tabs focus on live sensors and charts, with pointers to Overclock for tuning details.
+`zenpower` and the in-kernel `k10temp` driver both bind to the same AMD monitoring hardware. Usually `k10temp` loads first, so the app may only see Tctl/Tdie unless you switch to `zenpower`.
 
-## History viewer and disk logging
+The running app does not change kernel modules; it checks for `zenpower` first and falls back to `k10temp`.
 
-The **Storage** tab in the app shows **live NVMe drive temperatures** from sysfs (one composite temp per drive). That is separate from **disk logging**, which only runs when you enable it in **Settings**.
+### Easy setup (Arch / CachyOS)
 
-### Disk logging
-
-- **Default:** logging is **off**. Turn on **Log samples to disk** in **Settings** to append data.
-- **Format:** one JSON object per second per line (**JSON Lines**). Files are named `**linux-sensor-tray-YYYY-MM-DD.jsonl`** (older installs may emit `**monitor-*.jsonl`**).
-- **Where files go:** by default `**sensor_logs`** under Electron **user data** — on Linux that is usually `**~/.config/linux-sensor-tray/sensor_logs/`**. You can **Choose folder…** in Settings for a custom directory; **Use default** restores the path above.
-- **Schema:** current lines are **schema 3**: compact chart fields plus `**mem`**, `**cpu`**, `**cpuTuning**`, `**gpu**`, `**mainboard**`, and `**storage**` (same idea as in-app detail; very large AMDGPU sysfs blocks are omitted). Older logs may be schema 2 and can include a legacy `**smu**` block. Expect about **one line per second** while logging is enabled — size grows with how long you leave it on.
-
-### `history-viewer.html`
-
-On startup the app writes `**history-viewer.html`** into the **default** log directory and, if different, your **custom** log directory — always next to the `.jsonl` files you care about.
-
-Open that file in a normal browser (from **Settings** use **Open in file manager**, then open the HTML file). It is **fully offline** (no web server): **drag and drop** `.jsonl` files onto the page (or use the file picker), view synced charts, and use **wheel zoom** and **drag-pan** on the plots. For scripting or spreadsheets, consume the same `.jsonl` files with `**jq`**, Python, or similar tools.
-
-## Requirements
-
-- Linux with sysfs hwmon enabled (any modern distro)
-- Node.js 20+ and npm
-- An AMD CPU and an AMD discrete GPU for the full feature set
-- Recommended kernel modules:
-  - `zenpower` (Zen 1–4) — exposes Vcore, V SoC, per-CCD temps, package power and current. Without it, the app falls back to `k10temp` and only Tctl/Tdie are reported. On Arch/CachyOS install `zenpower3-dkms` from the AUR.
-  - `nct6687d` — required if your motherboard uses an NCT6687D super-IO chip and the kernel didn't autoload a driver. Other chips (NCT677x, IT87…) are auto-detected too.
-  - The kernel's `amdgpu` driver is loaded automatically on AMD systems.
-
-### zenpower and k10temp
-
-`zenpower` and the in-kernel `k10temp` driver both use the same AMD CPU monitoring hardware on Zen systems. Only one of them can bind to it at a time, and `**k10temp` usually loads at boot and wins**, so `zenpower` may never appear until you change module loading.
-
-The running app **does not** change kernel modules; it looks for an hwmon device named `zenpower` first, then **falls back to `k10temp`** (Tctl/Tdie only, no extra voltages/power/per-CCD detail).
-
-The **install script** can optionally do the blacklist + `modprobe` step for you on **AMD** CPUs (interactive prompt on the controlling terminal — including `**curl … | bash`**, which reads from `**/dev/tty`** — or pass `**--zenpower**`, `**--no-zenpower**`, or set `**LST_CONFIGURE_ZENPOWER=1**` / `**MONITOR_CONFIGURE_ZENPOWER=1**`). It writes `/etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf` and records that path in `install-manifest.json` for uninstall.
-
-#### Easy setup (Arch / CachyOS)
-
-Install the DKMS module (AUR helper required):
+Install the DKMS module:
 
 ```bash
 yay -S --needed zenpower3-dkms
 ```
 
-Then switch from `k10temp` → `zenpower`:
+Then switch `k10temp` → `zenpower`:
 
 ```bash
 sudo tee /etc/modprobe.d/linux-sensor-tray-blacklist-k10temp.conf >/dev/null <<'EOF'
@@ -147,105 +166,57 @@ Verify which driver is active:
 lsmod | rg '^(zenpower|k10temp)\b'
 ```
 
-If `zenpower` fails to load after a kernel upgrade, remove the blacklist (or fix/rebuild the DKMS module) to restore `k10temp`.
+### Automated (installer)
 
-#### Automated (recommended)
-
-Use the installer prompt, or force it non-interactively:
+If you installed via AppImage scripts, you can enable it via the installer prompt or force it:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- --zenpower
 ```
 
-#### Manual (generic)
+### Trade-off
 
-Uninstall / revert:
+If the `zenpower` DKMS build breaks after a kernel upgrade, you may temporarily have **no** CPU hwmon until you rebuild DKMS or remove the blacklist file.
 
-- If you installed the blacklist via our install script, `scripts/uninstall.sh` will offer to remove it and reload `k10temp`.
-- Otherwise remove your `blacklist k10temp` file under `/etc/modprobe.d/` and reboot (or `sudo modprobe k10temp`).
+</details>
 
-**Trade-off:** if the `zenpower` DKMS build fails after a kernel upgrade, you may temporarily have **no** CPU hwmon until you fix the module or remove the blacklist.
+<details>
+<summary><strong>Develop / build</strong></summary>
 
-## System info enrichment (lshw via polkit)
-
-The System info tab can optionally run a privileged `lshw` probe for richer SMBIOS (DIMM banks, DMI caches, NVMe strings).
-
-- **On demand**: click **Enrich with root data** (polkit prompt).
-- **Always**: runs on every refresh (recommended only with a polkit rule installed).
-
-## Run from source
+### Run from source
 
 ```bash
 npm install
 npm run dev
 ```
 
-The app launches with a window and a tray icon. Closing the window hides it to the tray. Right-click the tray icon → **Quit** to stop.
-
-## Install from GitHub (CachyOS / Arch Linux)
-
-Releases publish a **Linux x64 AppImage** plus `latest-linux.yml` (required for in-app updates). You need at least one **GitHub Release** built by CI before the installer can download anything.
-
-**One-line install** (defaults below use this repo; override with another `owner/repo` if you fork):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash -s -- Mindsaver/linux-sensor-tray
-```
-
-Alternatively:
-
-```bash
-export LST_GH_REPO=Mindsaver/linux-sensor-tray
-curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/install.sh | bash
-```
-
-(`MONITOR_GH_REPO`, `MONITOR_INSTALL_DIR`, etc. still work as fallbacks during migration.)
-
-**Optional zenpower / k10temp:** you’ll get a **y/N** question after install when running from a normal terminal (including one-line `**curl … | bash`**). To force behavior without a prompt: `**--zenpower`** or `**--no-zenpower**` (after `owner/repo` if you pass one), or `**LST_CONFIGURE_ZENPOWER=1**` / `**0**`.
-
-This installs the AppImage to `~/.local/share/linux-sensor-tray/linux-sensor-tray.AppImage`, adds `~/.local/bin/linux-sensor-tray`, and registers `**linux-sensor-tray.desktop**`. **Do not move or rename** that AppImage path if you want **auto-updates** to keep working (the updater replaces that file in place).
-
-**Uninstall:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Mindsaver/linux-sensor-tray/main/scripts/uninstall.sh | bash
-```
-
-Non-interactive: `LST_UNINSTALL_YES=1` or `--yes` (`MONITOR_UNINSTALL_YES` still accepted). Interactive `**curl … | bash**` uses `**/dev/tty**` for prompts (remove app, optional k10temp revert, optional config wipe).
-
-If the manifest lists our k10temp blacklist file, uninstall **asks whether to remove it** and reload `k10temp` (sudo). With `**--yes`**, that file is left in place unless you also set `**LST_UNINSTALL_REVERT_ZENPOWER=1`** (or `**MONITOR_UNINSTALL_REVERT_ZENPOWER=1**`). Without a controlling terminal and without `**--yes**`, uninstall exits with an error instead of guessing.
-
-**Auto-updates:** the packaged app checks your GitHub repo’s latest release after startup (tray → **Check for updates…** also works). If an update exists, you get a prompt before anything is downloaded (**Download** / **Don't update**); after download, you choose **Restart now** or **Later**. Set `LST_SKIP_AUTO_UPDATE=1` to disable (`MONITOR_SKIP_AUTO_UPDATE` still accepted). `GITHUB_TOKEN` on the install script is only needed for higher GitHub API rate limits (optional).
-
-## Build a packaged app (maintainers)
-
-**Icon:** raster logo lives at `**build/icon.png`** (512×512 PNG). electron-builder uses it for Linux launcher/AppImage metadata via `**directories.buildResources`**, and the same file is shipped next to the app as `**icon.png`** (`extraResources`) so the window and tray load it at runtime. If that file is missing, the app falls back to a built-in teal icon.
+### Build a packaged app (maintainers)
 
 ```bash
 npm run build
 ```
 
-Compiled app output is under `out/`. To produce an AppImage and metadata locally:
+To produce an AppImage + metadata locally:
 
 ```bash
 npm run dist
 ```
 
-Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version>-*.AppImage` (exact suffix depends on arch) and `latest-linux.yml`.
+Artifacts land in `release/` (gitignored), including `linux-sensor-tray-<version>-*.AppImage` and `latest-linux.yml`.
 
-**Publishing:** CI runs `scripts/apply-github-publish.mjs` (sets `owner` / `repo` / `**releaseType: release`** so GitHub gets a normal release, not a draft) then `npm run dist:publish`. That uploads AppImage, `latest-linux.yml`, etc., so **electron-updater** works. If nothing appears under **Releases**, check the workflow log for “skipped publishing” (often an existing release + electron-builder’s 2-hour guard — CI sets `EP_GH_IGNORE_TIME` to reduce that) and confirm **Settings → Actions → General → Workflow permissions** allows **Read and write** for `GITHUB_TOKEN`.
+Publishing: CI runs `scripts/apply-github-publish.mjs` then `npm run dist:publish` so `electron-updater` can find releases.
+
+Icon: raster logo lives at `build/icon.png` (512×512).
+
+</details>
 
 ## Notes / troubleshooting
 
-- If a value shows `—` it means the corresponding sysfs file isn't exposed by your kernel/driver/hardware. The app degrades gracefully.
-- The polling rate is 1 Hz. **Settings** tab: extend the in-memory ring buffer up to **7 days** (~~604k samples). **Chart time range** (what the sparklines show) is a **dropdown** in the top bar. Defaults are **6 h** buffer and **1 min** charts; settings are saved under Electron `userData` as `**linux-sensor-tray-settings.json`** (on first launch, `**monitor-settings.json`** under the old `~~/.config/monitor` path is imported automatically if present).
-- **Disk logging and offline charts:** see **[History viewer and disk logging](#history-viewer-and-disk-logging)** (`.jsonl` layout, folders, and `**history-viewer.html`**).
-- All sensor reads happen in the Electron main process; the renderer only receives a typed `SensorSnapshot` over IPC. The preload script is the only bridge (`contextIsolation: true`, `nodeIntegration: false`).
-- **AppImage / FUSE:** If the AppImage fails to run, install `fuse2` or `libfuse` (varies by distro) and try again.
+- If a value shows `—`, your kernel/driver/hardware simply doesn’t expose that sysfs node.
+- Polling rate is 1 Hz. The Settings tab can extend the in-memory ring buffer up to 7 days (~604k samples). Settings are stored under Electron `userData` as `linux-sensor-tray-settings.json` (older `monitor-settings.json` is imported on first launch if present).
+- AppImage / FUSE: if an AppImage fails to run, install `fuse2` / `libfuse` (varies by distro).
 
-## Possible additions: system identity, health, and “system report”
+## Roadmap ideas (optional reading)
 
-These are **candidate features** that would broaden Linux Sensor Tray from “live sensors” into a lightweight **system identity + health** and **bottleneck** view. Most items can be sourced from **read-only sysfs/procfs**, plus optional helpers (e.g. `smartctl`) when present.
-
-Full write-up: see [`docs/system-report.md`](docs/system-report.md).
+Candidate “system report” features live in [`docs/system-report.md`](docs/system-report.md).
 

@@ -9,6 +9,7 @@ import {
 } from '@shared/types'
 import { useSensorTray } from '../store'
 import { fmt } from '../format'
+import { SETUP_WIZARD_OPEN_EVENT } from '../App'
 
 const RETENTION_PRESETS = [60, 180, 360, 720, 1440, 2880, 10080] as const
 const DISK_LOG_INTERVAL_PRESETS = [1, 5, 10, 30, 60, 300] as const
@@ -421,6 +422,34 @@ export function SettingsTab(): JSX.Element {
           </details>
         </Card>
       )}
+
+      <Card
+        title="Setup"
+        subtitle="Optional packages, kernel modules, and polkit rules — see the System tab for the full grid"
+        className="col-span-12"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await window.api.setup.resetWizardSeen()
+              } catch (e) {
+                console.error('[Settings] resetWizardSeen failed:', e)
+              }
+              window.dispatchEvent(new Event(SETUP_WIZARD_OPEN_EVENT))
+            }}
+            className="px-3 py-1.5 rounded-lg text-sm bg-slate-800 text-cyan-300 hover:bg-slate-700"
+          >
+            Re-run setup wizard
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+          Clears the &quot;don&apos;t show anymore&quot; flag for this app version and reopens the
+          first-run wizard immediately. The grid is also always available in the System info tab
+          under <span className="mono text-slate-400">Hardware setup</span>.
+        </p>
+      </Card>
 
       {status && <p className="col-span-12 text-xs text-emerald-400/90">{status}</p>}
     </div>
