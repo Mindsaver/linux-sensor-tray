@@ -15,6 +15,20 @@ If you're on Arch / CachyOS / EndeavourOS / Manjaro, this is the default path.
 yay -S linux-sensor-tray-bin
 ```
 
+Alternative AUR helper (`paru`):
+
+```bash
+paru -S linux-sensor-tray-bin
+```
+
+No AUR helper installed? Build manually:
+
+```bash
+git clone https://aur.archlinux.org/linux-sensor-tray-bin.git
+cd linux-sensor-tray-bin
+makepkg -si
+```
+
 - Installs `linux-sensor-tray` + `.desktop` entry and updates on `yay -Syu`.
 - There is also a from-source AUR package (builds against system `electron41`):
 
