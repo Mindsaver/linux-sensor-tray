@@ -2,7 +2,7 @@ import { app, nativeImage } from 'electron'
 import { deflateSync } from 'node:zlib'
 import { Buffer } from 'node:buffer'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 /** Build a 32-bit CRC table for PNG chunks. */
 const CRC_TABLE = (() => {
@@ -74,16 +74,69 @@ export function buildPng(
 
 /** Packaged app: `extraResources` copies `build/icon.png` here. */
 function resolveRasterIconPath(): string | null {
+  const appIconName = 'linux-sensor-tray'
+  const tryFiles = (paths: Array<string | null | undefined>): string | null => {
+    for (const p of paths) {
+      if (!p) continue
+      try {
+        if (existsSync(p)) return p
+      } catch {
+        // ignore
+      }
+    }
+    return null
+  }
+
   try {
     if (app.isPackaged && process.resourcesPath) {
-      const p = join(process.resourcesPath, 'icon.png')
-      if (existsSync(p)) return p
+      const resources = process.resourcesPath
+      const unpacked = join(resources, 'app.asar.unpacked')
+      const hit = tryFiles([
+        join(resources, 'icon.png'),
+        join(resources, `${appIconName}.png`),
+        join(unpacked, 'icon.png'),
+        join(unpacked, `${appIconName}.png`)
+      ])
+      if (hit) return hit
     }
   } catch {
     // ignore
   }
-  const devPath = join(process.cwd(), 'build', 'icon.png')
-  if (existsSync(devPath)) return devPath
+
+  // Dev / source installs: `cwd` is not guaranteed. Prefer `app.getAppPath()`.
+  const appPath = (() => {
+    try {
+      return app.getAppPath()
+    } catch {
+      return null
+    }
+  })()
+  const hitDev = tryFiles([
+    join(process.cwd(), 'build', 'icon.png'),
+    appPath ? join(appPath, 'build', 'icon.png') : null,
+    appPath ? join(dirname(appPath), 'build', 'icon.png') : null
+  ])
+  if (hitDev) return hitDev
+
+  // System icon theme locations (common for distro packages).
+  const home = process.env.HOME
+  const xdgDataHome = process.env.XDG_DATA_HOME || (home ? join(home, '.local', 'share') : null)
+  const xdgDataDirs = (process.env.XDG_DATA_DIRS || '/usr/local/share:/usr/share')
+    .split(':')
+    .filter(Boolean)
+  const dataDirs = [xdgDataHome, ...xdgDataDirs]
+  const hitTheme = tryFiles(
+    dataDirs.flatMap((d) => {
+      if (!d) return []
+      return [
+        join(d, 'icons', 'hicolor', '512x512', 'apps', `${appIconName}.png`),
+        join(d, 'icons', 'hicolor', '256x256', 'apps', `${appIconName}.png`),
+        join(d, 'pixmaps', `${appIconName}.png`)
+      ]
+    })
+  )
+  if (hitTheme) return hitTheme
+
   return null
 }
 
