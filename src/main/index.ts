@@ -116,7 +116,14 @@ if (!gotSingleInstanceLock) {
   app.on('second-instance', () => {
     // This can fire before `whenReady` creates a window; in that case just
     // let the primary instance continue starting up.
-    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (isQuitting) return
+    if (!app.isReady()) return
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      console.warn('[lst] second-instance: main window missing, recreating')
+      mainWindow = createWindow()
+    }
+
     if (mainWindow.isMinimized()) mainWindow.restore()
     if (!mainWindow.isVisible()) mainWindow.show()
     mainWindow.focus()
@@ -252,12 +259,16 @@ function stopPolling(): void {
 function quitApp(): void {
   if (isQuitting) return
   isQuitting = true
+
+  console.info('[lst] quit: begin')
   stopPolling()
   destroyTraySync()
-  const win = mainWindow
-  const forceExit = (): void => {
+
+  let requestedQuit = false
+  const forceExit = (reason: string): void => {
     // Some Linux StatusNotifier implementations can leave a “zombie” tray icon if the process
     // terminates immediately after destroy(). Give the event loop a moment, then hard-exit.
+    console.warn('[lst] quit: force-exit', reason)
     setTimeout(() => {
       try {
         app.exit(0)
@@ -268,25 +279,41 @@ function quitApp(): void {
   }
 
   const requestQuit = (): void => {
+    if (requestedQuit) return
+    requestedQuit = true
     try {
+      console.info('[lst] quit: app.quit()')
       app.quit()
+    } catch (e) {
+      console.error('[lst] quit: app.quit threw', e)
     } finally {
-      forceExit()
+      forceExit('post-app.quit')
     }
   }
 
-  if (win && !win.isDestroyed()) {
+  const failsafe = setTimeout(() => forceExit('failsafe-timeout'), 7000)
+  failsafe.unref()
+
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length > 0) {
+    console.info('[lst] quit: closing windows', windows.length)
+  }
+  for (const w of windows) {
     try {
       // Ensure no “hide instead of close” handler can intercept a quit-triggered close.
-      win.removeAllListeners('close')
+      w.removeAllListeners('close')
     } catch {
       /* ignore */
     }
-    win.once('closed', () => requestQuit())
-    win.close()
-  } else {
-    requestQuit()
+    try {
+      w.close()
+    } catch (e) {
+      console.error('[lst] quit: window.close failed', e)
+    }
   }
+
+  // Do not depend on any single window event; always proceed to request app quit.
+  requestQuit()
 }
 
 function applyTrayFromSettings(settings?: AppSettings): void {
