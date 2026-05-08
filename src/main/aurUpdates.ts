@@ -1,7 +1,10 @@
 import { clipboard, dialog, type BrowserWindow } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 
 function pathExistsOnPATH(exe: string): boolean {
   const path = process.env.PATH ?? ''
@@ -20,100 +23,115 @@ function detectAurHelper(): AurHelper {
   return null
 }
 
-type TerminalSpec = { cmd: string; args: (commandToRun: string) => string[] }
-
-function detectTerminal(): TerminalSpec | null {
-  if (pathExistsOnPATH('xdg-terminal-exec')) {
-    return { cmd: 'xdg-terminal-exec', args: (c) => ['--', 'sh', '-lc', c] }
-  }
-  if (pathExistsOnPATH('gnome-terminal')) {
-    return { cmd: 'gnome-terminal', args: (c) => ['--', 'bash', '-lc', c] }
-  }
-  if (pathExistsOnPATH('konsole')) {
-    return { cmd: 'konsole', args: (c) => ['-e', 'bash', '-lc', c] }
-  }
-  if (pathExistsOnPATH('alacritty')) {
-    return { cmd: 'alacritty', args: (c) => ['-e', 'bash', '-lc', c] }
-  }
-  if (pathExistsOnPATH('kitty')) {
-    return { cmd: 'kitty', args: (c) => ['sh', '-lc', c] }
-  }
-  if (pathExistsOnPATH('xterm')) {
-    return { cmd: 'xterm', args: (c) => ['-e', 'bash', '-lc', c] }
-  }
-  return null
+export type AurUpdateAvailable = {
+  pkgName: string
+  newVersion: string
+  helper: 'paru' | 'yay'
 }
 
-function defaultUpdateCommand(): string {
-  const helper = detectAurHelper()
-  const pkgs = 'linux-sensor-tray   # or linux-sensor-tray-bin'
-  if (helper === 'paru') return `paru -Syu ${pkgs}`
-  if (helper === 'yay') return `yay -Syu ${pkgs}`
-  return `sudo pacman -Syu`
-}
-
-function tryLaunchTerminal(command: string): boolean {
-  const term = detectTerminal()
-  if (!term) return false
-
-  const wrapped =
-    `${command}; echo; ` +
-    `printf "%s" "Press Enter to close..."; read _`
-
+async function pacmanHasPackage(pkg: string): Promise<boolean> {
   try {
-    const child = spawn(term.cmd, term.args(wrapped), { detached: true, stdio: 'ignore' })
-    child.unref()
+    await execFileAsync('pacman', ['-Q', pkg], { timeout: 2500 })
     return true
   } catch {
     return false
   }
 }
 
-export async function showAurUpdateDialog(getWindow: () => BrowserWindow | null): Promise<void> {
-  const cmd = defaultUpdateCommand()
-  const canOpenTerminal = detectTerminal() !== null
-  const buttons = canOpenTerminal ? ['Copy command', 'Open terminal', 'Close'] : ['Copy command', 'Close']
+async function installedCandidates(): Promise<string[]> {
+  const candidates = ['linux-sensor-tray', 'linux-sensor-tray-bin'] as const
+  const out: string[] = []
+  for (const c of candidates) {
+    if (await pacmanHasPackage(c)) out.push(c)
+  }
+  return out
+}
+
+function parseQuaLine(line: string): { pkgName: string; newVersion: string } | null {
+  // Common formats:
+  // - "pkgname oldver -> newver"
+  // - "pkgname newver"
+  const t = line.trim()
+  if (!t) return null
+  const parts = t.split(/\s+/g)
+  if (parts.length < 2) return null
+  const pkgName = parts[0]
+  const arrowIdx = parts.indexOf('->')
+  if (arrowIdx !== -1 && arrowIdx + 1 < parts.length) {
+    return { pkgName, newVersion: parts[arrowIdx + 1] }
+  }
+  return { pkgName, newVersion: parts[1] }
+}
+
+export async function detectAurUpdate(): Promise<AurUpdateAvailable | null> {
+  const helper = detectAurHelper()
+  if (!helper) return null
+
+  const installed = await installedCandidates()
+  if (installed.length === 0) return null
+
+  try {
+    const { stdout } = await execFileAsync(helper, ['-Qua'], { timeout: 6000, maxBuffer: 2 * 1024 * 1024 })
+    const lines = String(stdout ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+
+    for (const line of lines) {
+      const parsed = parseQuaLine(line)
+      if (!parsed) continue
+      if (installed.includes(parsed.pkgName)) {
+        return { pkgName: parsed.pkgName, newVersion: parsed.newVersion, helper }
+      }
+    }
+    return null
+  } catch (e) {
+    console.error('[aurUpdates] helper check failed:', e)
+    return null
+  }
+}
+
+export function buildAurUpdateCommand(update: AurUpdateAvailable): string {
+  return `${update.helper} -Syu ${update.pkgName}`
+}
+
+export async function showAurUpdateAvailableDialog(opts: {
+  getWindow: () => BrowserWindow | null
+  update: AurUpdateAvailable
+  onIgnore: (version: string) => void | Promise<void>
+}): Promise<void> {
+  const cmd = buildAurUpdateCommand(opts.update)
+  const buttons = ['Copy command', 'Ignore this version', 'Close']
 
   const body =
-    'This copy was installed via your system package manager (AUR/pacman), so in-app updates are disabled.\n\n' +
-    'Recommended (AUR helper):\n' +
-    '  paru -Syu linux-sensor-tray   # or linux-sensor-tray-bin\n' +
-    '  yay  -Syu linux-sensor-tray   # or linux-sensor-tray-bin\n\n' +
-    'Or update your whole system:\n' +
-    '  sudo pacman -Syu\n'
+    `A new version is available via AUR.\n\n` +
+    `Package: ${opts.update.pkgName}\n` +
+    `New version: ${opts.update.newVersion}\n\n` +
+    `Run this command:\n` +
+    `  ${cmd}\n`
 
-  const win = getWindow()
-  const opts = {
+  const win = opts.getWindow()
+  const msgBox = {
     type: 'info' as const,
     title: 'Linux Sensor Tray',
-    message: 'Updates are managed by pacman/AUR',
+    message: `Update available (${opts.update.newVersion})`,
     detail: body,
     buttons,
     defaultId: 0,
     cancelId: buttons.length - 1
   }
 
-  const r = win && !win.isDestroyed() ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts)
+  const r =
+    win && !win.isDestroyed()
+      ? await dialog.showMessageBox(win, msgBox)
+      : await dialog.showMessageBox(msgBox)
   if (r.response === 0) {
     clipboard.writeText(cmd)
     return
   }
-  if (canOpenTerminal && r.response === 1) {
-    const ok = tryLaunchTerminal(cmd)
-    if (!ok) {
-      clipboard.writeText(cmd)
-      const warn = {
-        type: 'warning' as const,
-        title: 'Linux Sensor Tray',
-        message: 'Could not open a terminal',
-        detail: 'The update command has been copied to your clipboard.'
-      }
-      if (win && !win.isDestroyed()) {
-        await dialog.showMessageBox(win, warn)
-      } else {
-        await dialog.showMessageBox(warn)
-      }
-    }
+  if (r.response === 1) {
+    await opts.onIgnore(opts.update.newVersion)
+    return
   }
 }
 

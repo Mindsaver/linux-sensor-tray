@@ -15,7 +15,8 @@ const DEFAULTS: AppSettings = {
   trayEnabled: true,
   openAtLogin: false,
   privilegedSystemProbe: 'onDemand',
-  setupWizardSeenForVersion: ''
+  setupWizardSeenForVersion: '',
+  ignoredAurUpdateVersion: ''
 }
 
 const PRIVILEGED_PROBE_MODES: readonly PrivilegedSystemProbeMode[] = ['off', 'onDemand', 'always']
@@ -68,6 +69,10 @@ function clampSettings(partial: AppSettings): AppSettings {
   const setupWizardSeenForVersion =
     typeof wizSeenRaw === 'string' ? wizSeenRaw.trim() : DEFAULTS.setupWizardSeenForVersion
 
+  const ignoredRaw = partial.ignoredAurUpdateVersion as unknown
+  const ignoredAurUpdateVersion =
+    typeof ignoredRaw === 'string' ? ignoredRaw.trim() : DEFAULTS.ignoredAurUpdateVersion
+
   return {
     historyRetentionMinutes: history,
     chartWindowMinutes: chart,
@@ -77,7 +82,8 @@ function clampSettings(partial: AppSettings): AppSettings {
     trayEnabled,
     openAtLogin: Boolean(partial.openAtLogin),
     privilegedSystemProbe,
-    setupWizardSeenForVersion
+    setupWizardSeenForVersion,
+    ignoredAurUpdateVersion
   }
 }
 

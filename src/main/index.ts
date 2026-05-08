@@ -25,7 +25,7 @@ import { ensureHistoryViewerInDir } from './installHistoryViewer'
 import { initAutoUpdater, triggerUpdateCheck } from './updater'
 import { skipAutoUpdate } from './runtimeEnv'
 import { linuxAutostartSupported, syncLinuxAutostart } from './linuxAutostart'
-import { showAurUpdateDialog } from './aurUpdates'
+import { detectAurUpdate, showAurUpdateAvailableDialog } from './aurUpdates'
 import { collectSystemInfo } from './systemInfo'
 import { getPolkitRuleStatus, installPolkitRule, uninstallPolkitRule } from './linuxPolkitRule'
 import { collectTaskMonitorSnapshot } from './tasks'
@@ -70,6 +70,43 @@ let isQuitting = false
 let trayUpdateCheck: (() => void) | undefined
 /** Last snapshot timestamp (ms) when a disk log line was written; null until first write after enable. */
 let lastDiskLogAtMs: number | null = null
+let aurUpdatePromptOpen = false
+
+async function checkAurUpdates(userInitiated: boolean): Promise<void> {
+  if (!app.isPackaged || !skipAutoUpdate()) return
+  if (aurUpdatePromptOpen) return
+
+  try {
+    const update = await detectAurUpdate()
+    if (!update) {
+      if (!userInitiated) return
+      const win = BrowserWindow.getFocusedWindow() ?? mainWindow
+      const opts = {
+        type: 'info' as const,
+        title: 'Linux Sensor Tray',
+        message: 'You are on the latest version.'
+      }
+      await (win && !win.isDestroyed() ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts))
+      return
+    }
+
+    const ignored = getSettingsSnapshot().ignoredAurUpdateVersion
+    if (ignored && ignored === update.newVersion) return
+
+    aurUpdatePromptOpen = true
+    await showAurUpdateAvailableDialog({
+      getWindow: () => BrowserWindow.getFocusedWindow() ?? mainWindow,
+      update,
+      onIgnore: async (version) => {
+        await saveSettings({ ignoredAurUpdateVersion: version })
+      }
+    })
+  } catch (e) {
+    console.error('[aurUpdates] check failed:', e)
+  } finally {
+    aurUpdatePromptOpen = false
+  }
+}
 
 // Single-instance app (tray-first): if the user launches again, focus the existing window.
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -341,11 +378,15 @@ app.whenReady().then(async () => {
           triggerUpdateCheck(true)
           return
         }
-        void showAurUpdateDialog(() => BrowserWindow.getFocusedWindow() ?? mainWindow)
+        void checkAurUpdates(true)
       }
     : undefined
   applyTrayFromSettings()
   startPolling()
+
+  if (app.isPackaged && skipAutoUpdate()) {
+    setTimeout(() => void checkAurUpdates(false), 6000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -232,6 +232,12 @@ export type AppSettings = {
    * "Skip" does NOT write this field — it closes for the session only.
    */
   setupWizardSeenForVersion: string
+
+  /**
+   * AUR/pacman-managed installs: if an update prompt was shown for this version and the
+   * user clicked Ignore, do not show the prompt again until a newer version appears.
+   */
+  ignoredAurUpdateVersion: string
 }
 
 export type PrivilegedSystemProbeMode = 'off' | 'onDemand' | 'always'
