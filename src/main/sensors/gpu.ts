@@ -8,7 +8,7 @@ const exec = promisify(execCb)
 
 let modelCache: string | null = null
 
-async function readGpuModel(preferredVendor?: 'amd' | 'nvidia'): Promise<string> {
+async function readGpuModel(vendorFilter?: 'amd' | 'nvidia'): Promise<string> {
   if (modelCache != null) return modelCache
   try {
     const { stdout } = await exec('lspci -mm', { timeout: 1500 })
@@ -26,15 +26,15 @@ async function readGpuModel(preferredVendor?: 'amd' | 'nvidia'): Promise<string>
         .trim()
       if (firstFound == null) firstFound = model
       const v = vendor.toLowerCase()
-      if (preferredVendor === 'amd' && (v.includes('amd') || v.includes('advanced micro devices'))) {
+      if (vendorFilter === 'amd' && (v.includes('amd') || v.includes('advanced micro devices'))) {
         modelCache = model
         return modelCache
       }
-      if (preferredVendor === 'nvidia' && v.includes('nvidia')) {
+      if (vendorFilter === 'nvidia' && v.includes('nvidia')) {
         modelCache = model
         return modelCache
       }
-      if (!preferredVendor) {
+      if (!vendorFilter) {
         modelCache = model
         return modelCache
       }
@@ -46,7 +46,7 @@ async function readGpuModel(preferredVendor?: 'amd' | 'nvidia'): Promise<string>
   } catch {
     // ignore
   }
-  modelCache = preferredVendor === 'nvidia' ? 'NVIDIA GPU' : preferredVendor === 'amd' ? 'AMD GPU' : 'GPU'
+  modelCache = vendorFilter === 'nvidia' ? 'NVIDIA GPU' : vendorFilter === 'amd' ? 'AMD GPU' : 'GPU'
   return modelCache
 }
 
@@ -67,6 +67,14 @@ function emptyGpuTuning(): GpuTuningSnapshot {
     powerCapMaxW: null,
     powerCapMinW: null
   }
+}
+
+/** Parse numeric telemetry field; returns null for unavailable / unsupported values. */
+function parseTelemetryNumber(v: string | undefined): number | null {
+  if (!v) return null
+  if (/^n\/a$/i.test(v) || /^not supported$/i.test(v) || /^unknown$/i.test(v)) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 /** DPM / profile / OD tables live under the card device dir; power caps on hwmon. */
@@ -124,27 +132,21 @@ export async function readGpuSnapshot(): Promise<GpuSnapshot> {
         .find((s) => s.length > 0)
       if (first) {
         const cols = first.split(',').map((s) => s.trim())
-        const parseNum = (v: string | undefined): number | null => {
-          if (!v) return null
-          if (/^n\/a$/i.test(v) || /^not supported$/i.test(v) || /^unknown$/i.test(v)) return null
-          const n = Number(v)
-          return Number.isFinite(n) ? n : null
-        }
         return {
           backend: 'nvidia',
           model: cols[0] || (await readGpuModel('nvidia')),
-          busy: parseNum(cols[1]),
-          tempEdge: parseNum(cols[2]),
+          busy: parseTelemetryNumber(cols[1]),
+          tempEdge: parseTelemetryNumber(cols[2]),
           tempJunction: null,
           tempMemory: null,
           vddgfx: null,
-          power: parseNum(cols[3]),
-          powerCap: parseNum(cols[4]),
-          sclkMHz: parseNum(cols[5]),
-          mclkMHz: parseNum(cols[6]),
+          power: parseTelemetryNumber(cols[3]),
+          powerCap: parseTelemetryNumber(cols[4]),
+          sclkMHz: parseTelemetryNumber(cols[5]),
+          mclkMHz: parseTelemetryNumber(cols[6]),
           fanRpm: null,
           fanMax: null,
-          fanPwm: parseNum(cols[7]),
+          fanPwm: parseTelemetryNumber(cols[7]),
           tuning: emptyGpuTuning()
         }
       }

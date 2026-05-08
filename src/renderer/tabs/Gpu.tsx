@@ -13,6 +13,10 @@ export function GpuTab(): JSX.Element {
   if (!s) return <div className="text-slate-400 text-sm">Waiting…</div>
   const isAmd = s.gpu.backend === 'amdgpu'
   const backendLabel = s.gpu.backend === 'nvidia' ? 'NVIDIA' : isAmd ? 'AMDGPU' : 'GPU'
+  const fanPwmLabel = s.gpu.fanPwm != null ? `${s.gpu.fanPwm.toFixed(0)}%` : null
+  const fanValue =
+    s.gpu.fanRpm != null ? fmt.rpm(s.gpu.fanRpm) : fanPwmLabel != null ? fanPwmLabel : '—'
+  const fanHint = s.gpu.fanRpm != null && fanPwmLabel != null ? `${fanPwmLabel} PWM` : undefined
 
   const usageSeries: Series[] = [
     {
@@ -79,8 +83,8 @@ export function GpuTab(): JSX.Element {
             <Stat label="Memory clock" value={fmt.mhz(s.gpu.mclkMHz)} size="md" />
             <Stat
               label="Fan"
-              value={s.gpu.fanRpm != null ? fmt.rpm(s.gpu.fanRpm) : s.gpu.fanPwm != null ? `${s.gpu.fanPwm.toFixed(0)}%` : '—'}
-              hint={s.gpu.fanRpm != null && s.gpu.fanPwm != null ? `${s.gpu.fanPwm.toFixed(0)}% PWM` : undefined}
+              value={fanValue}
+              hint={fanHint}
               size="md"
             />
           </div>
@@ -91,7 +95,7 @@ export function GpuTab(): JSX.Element {
         <Card title="Power & fan" className="col-span-12">
           <div className="space-y-3">
             <BarMeter
-               label={isAmd ? 'PPT' : 'Power'}
+              label={isAmd ? 'PPT' : 'Power'}
               value={s.gpu.power}
               max={s.gpu.powerCap}
               display={`${s.gpu.power.toFixed(1)} / ${s.gpu.powerCap.toFixed(0)} W`}
