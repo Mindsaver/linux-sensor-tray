@@ -188,7 +188,7 @@ async function readCpuTelemetry(): Promise<{
     for (const t of temps) {
       const label = t.label ?? ''
       fallbackTemps.push(t.value)
-      if (/^Package(?:\s+id)?\b/i.test(label)) packageTemps.push(t.value)
+      if (/^Package(?:\s+id)?(?:\s+\d+)?$/i.test(label)) packageTemps.push(t.value)
       else if (/^Core\s+\d+$/i.test(label)) coreTemps.push(t.value)
     }
   }
