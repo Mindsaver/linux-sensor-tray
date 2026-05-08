@@ -111,6 +111,18 @@ jobs:
           RELEASE_TAG="v${RELEASE_VERSION#v}"
           gh release upload "$RELEASE_TAG" *.AppImage.sha256 --clobber
 
+      # electron-builder 26.x leaves the GitHub Release as a draft even with
+      # publish.releaseType=release. Promote it now so the AppImage URL is
+      # anonymously fetchable — required because aur-publish-bin's updpkgsums
+      # downloads it without auth.
+      - name: Promote GitHub Release out of draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+        run: |
+          RELEASE_TAG="v${RELEASE_VERSION#v}"
+          gh release edit "$RELEASE_TAG" --draft=false
+
   aur-publish-bin:
     name: AUR publish (linux-sensor-tray-bin)
     needs: linux-release
