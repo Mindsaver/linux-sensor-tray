@@ -4,10 +4,14 @@ export type CpuCore = {
   freqMHz: number | null
 }
 
+export type CpuTelemetrySource = 'zenpower' | 'k10temp' | 'coretemp' | 'none'
+
 export type CpuSnapshot = {
   model: string
   loadTotal: number // 0-100
   cores: CpuCore[]
+  /** Active CPU hwmon backend used for temperatures / rail telemetry. */
+  telemetrySource: CpuTelemetrySource
   tempTctl: number | null // °C
   tempTdie: number | null // °C
   tempCcds: number[] // per CCD, °C

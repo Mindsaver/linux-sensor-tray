@@ -4,6 +4,7 @@ import { Gauge } from '../components/Gauge'
 import { Stat } from '../components/Stat'
 import { BarMeter } from '../components/BarMeter'
 import { Sparkline, type Series } from '../components/Sparkline'
+import { getCpuTelemetryPresentation } from '../cpuPresentation'
 import { useChartHistoryWindow, useLatest } from '../hooks'
 import { fmt, loadAccent, tempAccent } from '../format'
 import { cpuFreqSummary } from '@shared/history'
@@ -17,6 +18,8 @@ export function Overview(): JSX.Element {
       <div className="text-slate-400 text-sm">Waiting for first sensor snapshot…</div>
     )
   }
+
+  const cpuUi = getCpuTelemetryPresentation(s.cpu)
 
   const cpuLoadSeries: Series[] = [
     {
@@ -42,7 +45,7 @@ export function Overview(): JSX.Element {
   const tempSeries: Series[] = [
     {
       key: 'cpuTctl',
-      label: 'CPU Tctl',
+      label: `CPU ${cpuUi.primaryTempLabel}`,
       color: '#f87171',
       data: history.map((h) => ({ t: h.t, v: h.cpuTctl }))
     },
@@ -85,16 +88,27 @@ export function Overview(): JSX.Element {
         <div className="flex items-center gap-4">
           <Gauge value={s.cpu.loadTotal} max={100} label="Load" unit="%" integer />
           <div className="grid grid-cols-2 gap-3 flex-1">
-            <Stat label="Tctl" value={fmt.temp(s.cpu.tempTctl)} accent={tempAccent(s.cpu.tempTctl)} />
-            <Stat
-              label="CCD"
-              value={s.cpu.tempCcds.length ? s.cpu.tempCcds.map((t) => t.toFixed(1)).join(' / ') + ' °C' : '—'}
-              accent={tempAccent(s.cpu.tempCcds[0] ?? null)}
-            />
-            <Stat label="Vcore" value={fmt.volt(s.cpu.vCore)} />
-            <Stat label="V SoC" value={fmt.volt(s.cpu.vSoC)} />
-            <Stat label="P Core" value={fmt.watt(s.cpu.pCore)} />
-            <Stat label="P SoC" value={fmt.watt(s.cpu.pSoC)} />
+            <Stat label={cpuUi.primaryTempLabel} value={fmt.temp(s.cpu.tempTctl)} accent={tempAccent(s.cpu.tempTctl)} />
+            {cpuUi.showCcds ? (
+              <Stat
+                label="CCD"
+                value={s.cpu.tempCcds.length ? s.cpu.tempCcds.map((t) => t.toFixed(1)).join(' / ') + ' °C' : '—'}
+                accent={tempAccent(s.cpu.tempCcds[0] ?? null)}
+              />
+            ) : (
+              cpuUi.secondaryTempLabel &&
+              s.cpu.tempTdie != null && (
+                <Stat
+                  label={cpuUi.secondaryTempLabel}
+                  value={fmt.temp(s.cpu.tempTdie)}
+                  accent={tempAccent(s.cpu.tempTdie)}
+                />
+              )
+            )}
+            {cpuUi.showAmdRailStats && <Stat label="Vcore" value={fmt.volt(s.cpu.vCore)} />}
+            {cpuUi.showAmdRailStats && <Stat label="V SoC" value={fmt.volt(s.cpu.vSoC)} />}
+            {cpuUi.showAmdRailStats && <Stat label="P Core" value={fmt.watt(s.cpu.pCore)} />}
+            {cpuUi.showAmdRailStats && <Stat label="P SoC" value={fmt.watt(s.cpu.pSoC)} />}
             <Stat label="Avg core" value={fmt.mhz(cpuClk.avg)} size="sm" />
             <Stat label="Max core" value={fmt.mhz(cpuClk.max)} size="sm" />
           </div>
@@ -166,7 +180,7 @@ export function Overview(): JSX.Element {
 
       <Card
         title="Temperature history"
-        subtitle={`Last ${rangeLabel} · CPU Tctl + GPU edge / junction / VRAM`}
+        subtitle={`Last ${rangeLabel} · CPU ${cpuUi.primaryTempLabel} + GPU edge / junction / VRAM`}
         className="col-span-12 xl:col-span-4"
       >
         <Sparkline
@@ -174,7 +188,7 @@ export function Overview(): JSX.Element {
           unit="°C"
           height={200}
           autoY
-          caption="Temperature history — CPU Tctl and all AMDGPU temps: die edge, hotspot junction, and VRAM junction (see legend)."
+          caption={`Temperature history — CPU ${cpuUi.primaryTempLabel} and all AMDGPU temps: die edge, hotspot junction, and VRAM junction (see legend).`}
         />
       </Card>
 
