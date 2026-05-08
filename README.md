@@ -42,6 +42,7 @@ The PKGBUILDs in [`aur/`](aur/) are the source of truth and are pushed to AUR by
 
 These are **not required**, but they unlock extra sensors or features on some systems:
 
+- **Intel CPU temperatures**: `coretemp` is supported automatically on Intel CPUs — package temperature and max core temperature show up without extra setup when the kernel exposes the hwmon.
 - **More AMD CPU sensors**: `zenpower3-dkms` (AUR) — exposes Vcore, V SoC, per-CCD temps, package power, and current. Without it, the app falls back to `k10temp` (Tctl/Tdie only).
 - **Richer System info tab**: `lshw` (`lshw-git`AUR) — used when you click **Enrich with root data** or enable "Always" mode. Shows DIMM banks, DMI caches, NVMe strings, etc.
 - **Root helpers**: `polkit` (`polkit-git`AUR, `polkit-consolekit`AUR) — needed for `pkexec`-based privileged probes (lshw enrichment, zenpower setup via the app's setup tool). Most Arch-based desktops already ship polkit.

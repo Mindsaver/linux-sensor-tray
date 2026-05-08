@@ -1,8 +1,9 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import os from 'node:os'
-import type { CpuSnapshot, CpuTuningSnapshot } from '@shared/types'
+import type { CpuSnapshot, CpuTelemetrySource, CpuTuningSnapshot } from '@shared/types'
 import {
+  findAllHwmonByName,
   findHwmonByName,
   readLabeledInputs,
   readNumber,
@@ -85,8 +86,9 @@ async function readCpuModel(): Promise<string> {
   return os.cpus()[0]?.model ?? 'Unknown CPU'
 }
 
-/** Map zenpower readings into the CpuSnapshot shape. */
-async function readZenpower(): Promise<{
+/** Read CPU temperature / rail telemetry from zenpower, k10temp, or Intel coretemp. */
+async function readCpuTelemetry(): Promise<{
+  telemetrySource: CpuTelemetrySource
   hasZen: boolean
   tempTctl: number | null
   tempTdie: number | null
@@ -98,64 +100,107 @@ async function readZenpower(): Promise<{
   iCore: number | null
   iSoC: number | null
 }> {
+  const empty = (
+    telemetrySource: CpuTelemetrySource = 'none'
+  ): {
+    telemetrySource: CpuTelemetrySource
+    hasZen: boolean
+    tempTctl: number | null
+    tempTdie: number | null
+    tempCcds: number[]
+    vCore: number | null
+    vSoC: number | null
+    pCore: number | null
+    pSoC: number | null
+    iCore: number | null
+    iSoC: number | null
+  } => ({
+    telemetrySource,
+    hasZen: false,
+    tempTctl: null,
+    tempTdie: null,
+    tempCcds: [],
+    vCore: null,
+    vSoC: null,
+    pCore: null,
+    pSoC: null,
+    iCore: null,
+    iSoC: null
+  })
+
   const dir = await findHwmonByName('zenpower')
-  if (!dir) {
-    // Fall back to k10temp (only Tctl/Tdie are exposed, no voltages/power).
-    const k10 = await findHwmonByName('k10temp')
-    let tdie: number | null = null
+  if (dir) {
+    const temps = await readLabeledInputs(dir, 'temp')
+    const ins = await readLabeledInputs(dir, 'in')
+    const powers = await readLabeledInputs(dir, 'power')
+    const currents = await readLabeledInputs(dir, 'curr')
+
     let tctl: number | null = null
-    if (k10) {
-      for (const t of await readLabeledInputs(k10, 'temp')) {
-        if (t.label === 'Tctl') tctl = t.value
-        else if (t.label === 'Tdie') tdie = t.value
-      }
+    let tdie: number | null = null
+    const ccds: number[] = []
+    for (const t of temps) {
+      const label = t.label ?? ''
+      if (label === 'Tctl') tctl = t.value
+      else if (label === 'Tdie') tdie = t.value
+      else if (/^Tccd\d+$/.test(label)) ccds.push(t.value)
     }
+
+    const labelMap = <T extends { label: string | null; value: number }>(
+      arr: T[],
+      label: string
+    ): number | null => arr.find((x) => x.label === label)?.value ?? null
+
     return {
-      hasZen: false,
+      telemetrySource: 'zenpower',
+      hasZen: true,
       tempTctl: tctl,
       tempTdie: tdie,
-      tempCcds: [],
-      vCore: null,
-      vSoC: null,
-      pCore: null,
-      pSoC: null,
-      iCore: null,
-      iSoC: null
+      tempCcds: ccds,
+      vCore: labelMap(ins, 'SVI2_Core'),
+      vSoC: labelMap(ins, 'SVI2_SoC'),
+      pCore: labelMap(powers, 'SVI2_P_Core'),
+      pSoC: labelMap(powers, 'SVI2_P_SoC'),
+      iCore: labelMap(currents, 'SVI2_C_Core'),
+      iSoC: labelMap(currents, 'SVI2_C_SoC')
     }
   }
 
-  const temps = await readLabeledInputs(dir, 'temp')
-  const ins = await readLabeledInputs(dir, 'in')
-  const powers = await readLabeledInputs(dir, 'power')
-  const currents = await readLabeledInputs(dir, 'curr')
-
-  let tctl: number | null = null
-  let tdie: number | null = null
-  const ccds: number[] = []
-  for (const t of temps) {
-    const label = t.label ?? ''
-    if (label === 'Tctl') tctl = t.value
-    else if (label === 'Tdie') tdie = t.value
-    else if (/^Tccd\d+$/.test(label)) ccds.push(t.value)
+  // Fall back to k10temp (only Tctl/Tdie are exposed, no voltages/power).
+  const k10 = await findHwmonByName('k10temp')
+  if (k10) {
+    let tdie: number | null = null
+    let tctl: number | null = null
+    for (const t of await readLabeledInputs(k10, 'temp')) {
+      if (t.label === 'Tctl') tctl = t.value
+      else if (t.label === 'Tdie') tdie = t.value
+    }
+    return { ...empty('k10temp'), tempTctl: tctl, tempTdie: tdie }
   }
 
-  const labelMap = <T extends { label: string | null; value: number }>(
-    arr: T[],
-    label: string
-  ): number | null => arr.find((x) => x.label === label)?.value ?? null
+  const coretempDirs = await findAllHwmonByName('coretemp')
+  if (coretempDirs.length === 0) return empty()
 
-  return {
-    hasZen: true,
-    tempTctl: tctl,
-    tempTdie: tdie,
-    tempCcds: ccds,
-    vCore: labelMap(ins, 'SVI2_Core'),
-    vSoC: labelMap(ins, 'SVI2_SoC'),
-    pCore: labelMap(powers, 'SVI2_P_Core'),
-    pSoC: labelMap(powers, 'SVI2_P_SoC'),
-    iCore: labelMap(currents, 'SVI2_C_Core'),
-    iSoC: labelMap(currents, 'SVI2_C_SoC')
+  const packageTemps: number[] = []
+  const coreTemps: number[] = []
+  const fallbackTemps: number[] = []
+  for (const coretempDir of coretempDirs) {
+    const temps = await readLabeledInputs(coretempDir, 'temp')
+    for (const t of temps) {
+      const label = t.label ?? ''
+      fallbackTemps.push(t.value)
+      if (/^Package(?:\s+id)?\b/i.test(label)) packageTemps.push(t.value)
+      else if (/^Core\s+\d+$/i.test(label)) coreTemps.push(t.value)
+    }
   }
+
+  const packageTemp =
+    packageTemps.length > 0
+      ? Math.max(...packageTemps)
+      : fallbackTemps.length > 0
+        ? Math.max(...fallbackTemps)
+        : null
+  const coreMax = coreTemps.length > 0 ? Math.max(...coreTemps) : null
+  return { ...empty('coretemp'), tempTctl: packageTemp, tempTdie: coreMax }
 }
 
 /** cpufreq policy for cpu0 — representative for homogeneous Ryzen desktop CPUs. */
@@ -216,10 +261,10 @@ let modelCache: string | null = null
 export async function readCpuSnapshot(): Promise<CpuSnapshot> {
   if (modelCache == null) modelCache = await readCpuModel()
 
-  const [load, freqs, zen, tuning] = await Promise.all([
+  const [load, freqs, telemetry, tuning] = await Promise.all([
     readCpuLoad(),
     readCoreFrequencies(os.cpus().length),
-    readZenpower(),
+    readCpuTelemetry(),
     readCpuTuning()
   ])
 
@@ -233,16 +278,17 @@ export async function readCpuSnapshot(): Promise<CpuSnapshot> {
     model: modelCache,
     loadTotal: load.total,
     cores,
-    tempTctl: zen.tempTctl,
-    tempTdie: zen.tempTdie,
-    tempCcds: zen.tempCcds,
-    vCore: zen.vCore,
-    vSoC: zen.vSoC,
-    pCore: zen.pCore,
-    pSoC: zen.pSoC,
-    iCore: zen.iCore,
-    iSoC: zen.iSoC,
-    hasZenpower: zen.hasZen,
+    telemetrySource: telemetry.telemetrySource,
+    tempTctl: telemetry.tempTctl,
+    tempTdie: telemetry.tempTdie,
+    tempCcds: telemetry.tempCcds,
+    vCore: telemetry.vCore,
+    vSoC: telemetry.vSoC,
+    pCore: telemetry.pCore,
+    pSoC: telemetry.pSoC,
+    iCore: telemetry.iCore,
+    iSoC: telemetry.iSoC,
+    hasZenpower: telemetry.hasZen,
     tuning
   }
 }

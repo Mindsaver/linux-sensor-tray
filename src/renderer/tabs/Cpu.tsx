@@ -6,6 +6,7 @@ import { PerCoreBars } from '../components/PerCoreBars'
 import { Sparkline, type Series } from '../components/Sparkline'
 import { useChartHistoryWindow, useLatest } from '../hooks'
 import { fmt, tempAccent } from '../format'
+import { getCpuTelemetryPresentation } from '../cpuPresentation'
 import type { SetupCapabilities } from '@shared/types'
 
 const README_HASH = 'https://github.com/Mindsaver/linux-sensor-tray#zenpower-and-k10temp'
@@ -160,6 +161,7 @@ export function CpuTab(): JSX.Element {
   const s = useLatest()
   const { history, rangeLabel } = useChartHistoryWindow()
   if (!s) return <div className="text-slate-400 text-sm">Waiting…</div>
+  const cpuUi = getCpuTelemetryPresentation(s.cpu)
 
   const loadSeries: Series[] = [
     {
@@ -172,7 +174,7 @@ export function CpuTab(): JSX.Element {
   const tempSeries: Series[] = [
     {
       key: 'cpuTctl',
-      label: 'Tctl',
+      label: cpuUi.primaryTempLabel,
       color: '#f87171',
       data: history.map((h) => ({ t: h.t, v: h.cpuTctl }))
     }
@@ -198,21 +200,33 @@ export function CpuTab(): JSX.Element {
     <div className="grid grid-cols-12 gap-4">
       <Card
         title={s.cpu.model}
-        subtitle={`${s.cpu.cores.length} threads · ${s.cpu.hasZenpower ? 'zenpower' : 'k10temp fallback'}`}
+        subtitle={`${s.cpu.cores.length} threads · ${cpuUi.sourceLabel}`}
         className="col-span-12"
       >
         <div className="flex flex-wrap items-center gap-6">
           <Gauge value={s.cpu.loadTotal} label="Load" unit="%" size={170} integer />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-3 flex-1 min-w-[260px]">
-            <Stat label="Tctl" value={fmt.temp(s.cpu.tempTctl)} accent={tempAccent(s.cpu.tempTctl)} size="lg" />
-            <Stat label="Tdie" value={fmt.temp(s.cpu.tempTdie)} accent={tempAccent(s.cpu.tempTdie)} size="lg" />
-            <Stat label="Vcore" value={fmt.volt(s.cpu.vCore)} size="lg" />
-            <Stat label="V SoC" value={fmt.volt(s.cpu.vSoC)} size="lg" />
-            <Stat label="P Core" value={fmt.watt(s.cpu.pCore)} size="md" />
-            <Stat label="P SoC" value={fmt.watt(s.cpu.pSoC)} size="md" />
-            <Stat label="I Core" value={fmt.amp(s.cpu.iCore)} size="md" />
-            <Stat label="I SoC" value={fmt.amp(s.cpu.iSoC)} size="md" />
-            {s.cpu.tempCcds.map((t, i) => (
+            <Stat
+              label={cpuUi.primaryTempLabel}
+              value={fmt.temp(s.cpu.tempTctl)}
+              accent={tempAccent(s.cpu.tempTctl)}
+              size="lg"
+            />
+            {cpuUi.secondaryTempLabel && s.cpu.tempTdie != null && (
+              <Stat
+                label={cpuUi.secondaryTempLabel}
+                value={fmt.temp(s.cpu.tempTdie)}
+                accent={tempAccent(s.cpu.tempTdie)}
+                size="lg"
+              />
+            )}
+            {cpuUi.showAmdRailStats && <Stat label="Vcore" value={fmt.volt(s.cpu.vCore)} size="lg" />}
+            {cpuUi.showAmdRailStats && <Stat label="V SoC" value={fmt.volt(s.cpu.vSoC)} size="lg" />}
+            {cpuUi.showAmdRailStats && <Stat label="P Core" value={fmt.watt(s.cpu.pCore)} size="md" />}
+            {cpuUi.showAmdRailStats && <Stat label="P SoC" value={fmt.watt(s.cpu.pSoC)} size="md" />}
+            {cpuUi.showAmdRailStats && <Stat label="I Core" value={fmt.amp(s.cpu.iCore)} size="md" />}
+            {cpuUi.showAmdRailStats && <Stat label="I SoC" value={fmt.amp(s.cpu.iSoC)} size="md" />}
+            {cpuUi.showCcds && s.cpu.tempCcds.map((t, i) => (
               <Stat
                 key={i}
                 label={`CCD${i + 1}`}
@@ -239,33 +253,37 @@ export function CpuTab(): JSX.Element {
           caption="Load history — total utilization of all logical cores (0–100%)."
         />
       </Card>
-      <Card title={`Tctl temperature · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
+      <Card title={`${cpuUi.primaryTempLabel} temperature · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
         <Sparkline
           series={tempSeries}
           unit="°C"
           height={228}
           autoY
-          caption="Temperature history — CPU control temperature (Tctl) from k10temp or zenpower."
+          caption={`Temperature history — ${cpuUi.primaryTempLabel.toLowerCase()} from ${cpuUi.sourceDescription}.`}
         />
       </Card>
-      <Card title={`Vcore · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
-        <Sparkline
-          series={voltSeries}
-          unit="V"
-          height={228}
-          autoY
-          caption="Voltage history — core rail (Vcore) when exposed by the driver."
-        />
-      </Card>
-      <Card title={`Package power · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
-        <Sparkline
-          series={powerSeries}
-          unit="W"
-          height={228}
-          autoY
-          caption="Power history — CPU package core power (P Core) in watts."
-        />
-      </Card>
+      {cpuUi.showAmdRailStats && (
+        <Card title={`Vcore · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
+          <Sparkline
+            series={voltSeries}
+            unit="V"
+            height={228}
+            autoY
+            caption="Voltage history — core rail (Vcore) when exposed by the driver."
+          />
+        </Card>
+      )}
+      {cpuUi.showAmdRailStats && (
+        <Card title={`Package power · ${rangeLabel}`} className="col-span-12 xl:col-span-6">
+          <Sparkline
+            series={powerSeries}
+            unit="W"
+            height={228}
+            autoY
+            caption="Power history — CPU package core power (P Core) in watts."
+          />
+        </Card>
+      )}
 
       {!s.cpu.hasZenpower && <ZenpowerBanner />}
     </div>
