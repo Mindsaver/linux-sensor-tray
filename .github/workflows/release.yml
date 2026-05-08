@@ -159,6 +159,7 @@ jobs:
           name: aur-linux-sensor-tray-bin-${{ inputs.version }}
           path: aur/linux-sensor-tray-bin/
           if-no-files-found: error
+          include-hidden-files: true
 
       - name: Push to AUR
         if: |
@@ -226,6 +227,7 @@ jobs:
           name: aur-linux-sensor-tray-${{ inputs.version }}
           path: aur/linux-sensor-tray/
           if-no-files-found: error
+          include-hidden-files: true
 
       - name: Push to AUR
         if: |
