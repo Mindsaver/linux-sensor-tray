@@ -1,0 +1,9 @@
+src/
+pkg/
+stage/
+.npm-cache/
+*.pkg.tar.*
+*.tar.gz
+*.AppImage
+LICENSE-*
+squashfs-root/

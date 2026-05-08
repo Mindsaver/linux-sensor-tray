@@ -1,5 +1,18 @@
 name: Release
 
+# Required repository secrets:
+#   GITHUB_TOKEN          - automatic, used to upload the GitHub Release.
+#   AUR_USERNAME          - your AUR account username (e.g. Mindsaver).
+#   AUR_EMAIL             - email to use for the commit on the AUR git remote.
+#   AUR_SSH_PRIVATE_KEY   - PRIVATE half of the SSH key whose public half
+#                           is registered on https://aur.archlinux.org/account/.
+#                           Paste the entire file contents (BEGIN/END lines included).
+#
+# Tag pushes (vX.Y.Z) trigger the full pipeline: build + GitHub Release + AUR push.
+# workflow_dispatch with aur_dry_run=true skips both publish steps and uploads the
+# prepared AUR working tree as an artifact for inspection. Use it to validate the
+# pkgver bump + updpkgsums + namcap pipeline against an already-published release.
+
 on:
   push:
     branches: [main]
@@ -12,6 +25,11 @@ on:
         description: 'Release version (type it with a leading v, e.g. v0.2.0 — bare 0.2.0 also works). Ignored when the job was triggered by pushing a git tag.'
         required: true
         type: string
+      aur_dry_run:
+        description: 'AUR dry run: skip linux-release publish + AUR push, just upload the prepared aur/<pkg>/ tree as a workflow artifact for inspection. Requires `version` to match an already-published release (typically the latest).'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -37,7 +55,10 @@ jobs:
   linux-release:
     name: Linux AppImage + publish
     needs: verify
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Tag push always publishes. Manual dispatch publishes unless aur_dry_run was selected.
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.aur_dry_run == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -89,3 +110,139 @@ jobs:
           # is triggered manually, the input may be `0.1.0`, so normalize here.
           RELEASE_TAG="v${RELEASE_VERSION#v}"
           gh release upload "$RELEASE_TAG" *.AppImage.sha256 --clobber
+
+  aur-publish-bin:
+    name: AUR publish (linux-sensor-tray-bin)
+    needs: linux-release
+    # Wait for linux-release; allow this job to run when linux-release was skipped (dry run).
+    if: |
+      always() &&
+      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') &&
+      (needs.linux-release.result == 'success' || needs.linux-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install AUR tooling
+        run: pacman -Syu --noconfirm --needed git pacman-contrib namcap sudo
+
+      - uses: actions/checkout@v6
+
+      - name: Bump pkgver, refresh checksums + .SRCINFO, lint
+        working-directory: aur/linux-sensor-tray-bin
+        env:
+          REF_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          VER="${REF_VERSION#v}"
+          if [[ -z "$VER" ]]; then
+            echo "::error::No version determined; expected tag or workflow input"
+            exit 1
+          fi
+          echo "Bumping linux-sensor-tray-bin to pkgver=${VER} pkgrel=1"
+          sed -i "s/^pkgver=.*/pkgver=${VER}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          # makepkg refuses to run as root, so build the working tree under an unprivileged user
+          useradd -m builder
+          chown -R builder:builder .
+          sudo -u builder updpkgsums
+          sudo -u builder makepkg --printsrcinfo > .SRCINFO
+          chown -R "$(id -u)":"$(id -g)" .
+          namcap PKGBUILD || true
+          echo "--- PKGBUILD diff ---"
+          grep -E '^(pkgver|pkgrel|sha256sums)=' PKGBUILD || true
+
+      - name: Upload prepared aur/linux-sensor-tray-bin (dry-run only)
+        if: github.event_name == 'workflow_dispatch' && inputs.aur_dry_run == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: aur-linux-sensor-tray-bin-${{ inputs.version }}
+          path: aur/linux-sensor-tray-bin/
+          if-no-files-found: error
+
+      - name: Push to AUR
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.aur_dry_run == false)
+        uses: KSXGitHub/github-actions-deploy-aur@v2
+        with:
+          pkgname: linux-sensor-tray-bin
+          pkgbuild: aur/linux-sensor-tray-bin/PKGBUILD
+          assets: |
+            aur/linux-sensor-tray-bin/.SRCINFO
+            aur/linux-sensor-tray-bin/linux-sensor-tray.install
+            aur/linux-sensor-tray-bin/linux-sensor-tray.sh
+            aur/linux-sensor-tray-bin/linux-sensor-tray.desktop
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          commit_message: 'Update to ${{ github.ref_type == ''tag'' && github.ref_name || inputs.version }}'
+          force_push: false
+          ssh_keyscan_types: rsa,ed25519,ecdsa
+
+  aur-publish-src:
+    name: AUR publish (linux-sensor-tray)
+    needs: linux-release
+    if: |
+      always() &&
+      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') &&
+      (needs.linux-release.result == 'success' || needs.linux-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install AUR tooling
+        run: pacman -Syu --noconfirm --needed git pacman-contrib namcap sudo
+
+      - uses: actions/checkout@v6
+
+      - name: Bump pkgver, refresh checksums + .SRCINFO, lint
+        working-directory: aur/linux-sensor-tray
+        env:
+          REF_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          VER="${REF_VERSION#v}"
+          if [[ -z "$VER" ]]; then
+            echo "::error::No version determined; expected tag or workflow input"
+            exit 1
+          fi
+          echo "Bumping linux-sensor-tray to pkgver=${VER} pkgrel=1"
+          sed -i "s/^pkgver=.*/pkgver=${VER}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          useradd -m builder
+          chown -R builder:builder .
+          sudo -u builder updpkgsums
+          sudo -u builder makepkg --printsrcinfo > .SRCINFO
+          chown -R "$(id -u)":"$(id -g)" .
+          namcap PKGBUILD || true
+          echo "--- PKGBUILD diff ---"
+          grep -E '^(pkgver|pkgrel|sha256sums)=' PKGBUILD || true
+
+      - name: Upload prepared aur/linux-sensor-tray (dry-run only)
+        if: github.event_name == 'workflow_dispatch' && inputs.aur_dry_run == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: aur-linux-sensor-tray-${{ inputs.version }}
+          path: aur/linux-sensor-tray/
+          if-no-files-found: error
+
+      - name: Push to AUR
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.aur_dry_run == false)
+        uses: KSXGitHub/github-actions-deploy-aur@v2
+        with:
+          pkgname: linux-sensor-tray
+          pkgbuild: aur/linux-sensor-tray/PKGBUILD
+          assets: |
+            aur/linux-sensor-tray/.SRCINFO
+            aur/linux-sensor-tray/linux-sensor-tray.install
+            aur/linux-sensor-tray/linux-sensor-tray.sh
+            aur/linux-sensor-tray/linux-sensor-tray.desktop
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          commit_message: 'Update to ${{ github.ref_type == ''tag'' && github.ref_name || inputs.version }}'
+          force_push: false
+          ssh_keyscan_types: rsa,ed25519,ecdsa
