@@ -1,7 +1,9 @@
 import { app } from 'electron'
+import { existsSync } from 'node:fs'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { skipAutoUpdate } from './runtimeEnv'
 
 export const LINUX_AUTOSTART_DESKTOP = 'linux-sensor-tray.desktop'
 
@@ -54,9 +56,19 @@ export async function syncLinuxAutostart(want: boolean): Promise<void> {
     return
   }
 
+  const aurWrapper = '/usr/bin/linux-sensor-tray'
+  const useAURWrapper = skipAutoUpdate() && existsSync(aurWrapper)
+
   // In AppImage builds, `process.execPath` points to the ephemeral mount path
   // (/tmp/.mount_*). Use APPIMAGE when available so autostart survives reboot.
-  const exe = process.env.APPIMAGE && process.env.APPIMAGE.length > 0 ? process.env.APPIMAGE : process.execPath
+  //
+  // When package-manager updates are enabled (AUR wrapper sets LST_SKIP_AUTO_UPDATE),
+  // prefer the wrapper so environment flags remain applied for autostart too.
+  const exe = useAURWrapper
+    ? aurWrapper
+    : process.env.APPIMAGE && process.env.APPIMAGE.length > 0
+      ? process.env.APPIMAGE
+      : process.execPath
   await mkdir(autostartDir(), { recursive: true })
   const execLine = quoteDesktopExec(exe)
   await writeFile(

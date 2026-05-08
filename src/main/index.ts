@@ -25,6 +25,7 @@ import { ensureHistoryViewerInDir } from './installHistoryViewer'
 import { initAutoUpdater, triggerUpdateCheck } from './updater'
 import { skipAutoUpdate } from './runtimeEnv'
 import { linuxAutostartSupported, syncLinuxAutostart } from './linuxAutostart'
+import { showAurUpdateDialog } from './aurUpdates'
 import { collectSystemInfo } from './systemInfo'
 import { getPolkitRuleStatus, installPolkitRule, uninstallPolkitRule } from './linuxPolkitRule'
 import { collectTaskMonitorSnapshot } from './tasks'
@@ -297,8 +298,16 @@ app.whenReady().then(async () => {
 
   mainWindow = createWindow()
   initAutoUpdater(() => mainWindow)
-  const canCheckUpdates = app.isPackaged && !skipAutoUpdate()
-  trayUpdateCheck = canCheckUpdates ? () => triggerUpdateCheck(true) : undefined
+  const canShowUpdateMenu = app.isPackaged
+  trayUpdateCheck = canShowUpdateMenu
+    ? () => {
+        if (!skipAutoUpdate()) {
+          triggerUpdateCheck(true)
+          return
+        }
+        void showAurUpdateDialog(() => BrowserWindow.getFocusedWindow() ?? mainWindow)
+      }
+    : undefined
   applyTrayFromSettings()
   startPolling()
 
