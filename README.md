@@ -6,6 +6,18 @@ Repository: [github.com/Mindsaver/linux-sensor-tray](https://github.com/Mindsave
 
 ![Linux Sensor Tray main window](docs/Screenshot.png)
 
+## Install from AUR (Arch / CachyOS / EndeavourOS / Manjaro)
+
+Available as both a binary repackage of the AppImage (recommended for most users) and a from-source build using system Electron 41:
+
+```bash
+yay -S linux-sensor-tray-bin    # fast, repackages the official AppImage
+# or
+yay -S linux-sensor-tray         # builds from source against system electron41
+```
+
+Either package conflicts with the other and both register `linux-sensor-tray` as the command and `.desktop` entry. Updates roll out automatically on `yay -Syu` after every release — the PKGBUILDs in [`aur/`](aur/) are the source of truth and are pushed to AUR by CI.
+
 ## Quick install (AppImage)
 
 ```bash
