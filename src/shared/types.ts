@@ -47,6 +47,8 @@ export type CpuTuningSnapshot = {
 }
 
 export type GpuSnapshot = {
+  /** Source backend for GPU telemetry. */
+  backend: 'amdgpu' | 'nvidia' | 'unknown'
   model: string
   /** GPU usage 0-100 (gpu_busy_percent). */
   busy: number | null

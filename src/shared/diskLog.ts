@@ -45,6 +45,7 @@ export function deriveDiskLogRecord(s: SensorSnapshot): Record<string, unknown> 
       boostFreqsMHz: s.cpu.tuning.boostFreqsMHz
     },
     gpu: {
+      backend: s.gpu.backend,
       model: s.gpu.model,
       powerCap: s.gpu.powerCap,
       sclkMHz: s.gpu.sclkMHz,

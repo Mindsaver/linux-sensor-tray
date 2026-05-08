@@ -11,14 +11,15 @@ export function OverclockTab(): JSX.Element {
 
   const t = s.cpu.tuning
   const g = s.gpu.tuning
+  const amdGpuTuning = s.gpu.backend === 'amdgpu'
 
   return (
     <div className="grid grid-cols-12 gap-4">
       <Card title="Overclocking & tuning" subtitle="Read-only sysfs — use LACT, BIOS, etc. to change values" className="col-span-12">
         <p className="text-sm text-slate-400 leading-relaxed max-w-4xl">
-          This tab collects limits and driver-visible tuning state: CPU cpufreq ceiling vs scaling cap, and AMDGPU DPM /
-          overdrive tables (what tools like <span className="mono text-cyan-300/90">LACT</span> program). Nothing here
-          writes to hardware.
+          This tab collects limits and driver-visible tuning state: CPU cpufreq ceiling vs scaling cap, plus AMDGPU DPM /
+          overdrive tables when available (what tools like <span className="mono text-cyan-300/90">LACT</span> program).
+          Nothing here writes to hardware.
         </p>
       </Card>
 
@@ -57,13 +58,21 @@ export function OverclockTab(): JSX.Element {
         </p>
       </Card>
 
-      <Card
-        title="GPU — DPM & overdrive"
-        subtitle={`${s.gpu.model} · sysfs (matches what LACT drives)`}
-        className="col-span-12"
-      >
-        <GpuTuningDisplay gpu={s.gpu} tuning={g} />
-      </Card>
+      {amdGpuTuning ? (
+        <Card
+          title="GPU — DPM & overdrive"
+          subtitle={`${s.gpu.model} · sysfs (matches what LACT drives)`}
+          className="col-span-12"
+        >
+          <GpuTuningDisplay gpu={s.gpu} tuning={g} />
+        </Card>
+      ) : (
+        <Card title="GPU — DPM & overdrive" subtitle={s.gpu.model} className="col-span-12">
+          <p className="text-sm text-slate-400 leading-relaxed m-0">
+            Detailed DPM/overdrive tables are currently available for AMDGPU sysfs only.
+          </p>
+        </Card>
+      )}
     </div>
   )
 }

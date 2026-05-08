@@ -8,10 +8,11 @@ const exec = promisify(execCb)
 
 let modelCache: string | null = null
 
-async function readGpuModel(): Promise<string> {
+async function readGpuModel(preferredVendor?: 'amd' | 'nvidia'): Promise<string> {
   if (modelCache != null) return modelCache
   try {
     const { stdout } = await exec('lspci -mm', { timeout: 1500 })
+    let firstFound: string | null = null
     for (const line of stdout.split('\n')) {
       // -mm output has quoted fields. We pick the first VGA / 3D controller line.
       if (!/VGA|3D|Display/i.test(line)) continue
@@ -19,16 +20,33 @@ async function readGpuModel(): Promise<string> {
       if (!m) continue
       const vendor = m[2]
       const device = m[3]
-      modelCache = `${vendor} ${device}`
+      const model = `${vendor} ${device}`
         .replace(/Advanced Micro Devices, Inc\.\s*/g, 'AMD ')
         .replace(/\s*\[AMD\/ATI\]\s*/g, ' ')
         .trim()
+      if (firstFound == null) firstFound = model
+      const v = vendor.toLowerCase()
+      if (preferredVendor === 'amd' && (v.includes('amd') || v.includes('advanced micro devices'))) {
+        modelCache = model
+        return modelCache
+      }
+      if (preferredVendor === 'nvidia' && v.includes('nvidia')) {
+        modelCache = model
+        return modelCache
+      }
+      if (!preferredVendor) {
+        modelCache = model
+        return modelCache
+      }
+    }
+    if (firstFound != null) {
+      modelCache = firstFound
       return modelCache
     }
   } catch {
     // ignore
   }
-  modelCache = 'AMD GPU'
+  modelCache = preferredVendor === 'nvidia' ? 'NVIDIA GPU' : preferredVendor === 'amd' ? 'AMD GPU' : 'GPU'
   return modelCache
 }
 
@@ -95,7 +113,46 @@ async function readGpuTuning(hwmonDir: string): Promise<GpuTuningSnapshot> {
 export async function readGpuSnapshot(): Promise<GpuSnapshot> {
   const dir = await findHwmonByName('amdgpu')
   if (!dir) {
+    try {
+      const { stdout } = await exec(
+        'nvidia-smi --query-gpu=name,utilization.gpu,temperature.gpu,power.draw,power.limit,clocks.gr,clocks.mem,fan.speed --format=csv,noheader,nounits',
+        { timeout: 1500 }
+      )
+      const first = stdout
+        .split('\n')
+        .map((s) => s.trim())
+        .find((s) => s.length > 0)
+      if (first) {
+        const cols = first.split(',').map((s) => s.trim())
+        const parseNum = (v: string | undefined): number | null => {
+          if (!v) return null
+          if (/^n\/a$/i.test(v) || /^not supported$/i.test(v) || /^unknown$/i.test(v)) return null
+          const n = Number(v)
+          return Number.isFinite(n) ? n : null
+        }
+        return {
+          backend: 'nvidia',
+          model: cols[0] || (await readGpuModel('nvidia')),
+          busy: parseNum(cols[1]),
+          tempEdge: parseNum(cols[2]),
+          tempJunction: null,
+          tempMemory: null,
+          vddgfx: null,
+          power: parseNum(cols[3]),
+          powerCap: parseNum(cols[4]),
+          sclkMHz: parseNum(cols[5]),
+          mclkMHz: parseNum(cols[6]),
+          fanRpm: null,
+          fanMax: null,
+          fanPwm: parseNum(cols[7]),
+          tuning: emptyGpuTuning()
+        }
+      }
+    } catch {
+      // ignore
+    }
     return {
+      backend: 'unknown',
       model: await readGpuModel(),
       busy: null,
       tempEdge: null,
@@ -115,7 +172,7 @@ export async function readGpuSnapshot(): Promise<GpuSnapshot> {
 
   const [model, busy, temps, ins, freqs, fanRpm, fanMax, pwm1Raw, powAvg, powCap, tuning] =
     await Promise.all([
-      readGpuModel(),
+      readGpuModel('amd'),
       readBusyPercent(dir),
       readLabeledInputs(dir, 'temp'),
       readLabeledInputs(dir, 'in'),
@@ -141,6 +198,7 @@ export async function readGpuSnapshot(): Promise<GpuSnapshot> {
   const mclk = findByLabel(freqs, 'mclk')
 
   return {
+    backend: 'amdgpu',
     model,
     busy,
     tempEdge,

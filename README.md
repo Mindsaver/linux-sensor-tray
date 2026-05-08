@@ -123,11 +123,11 @@ Closing the window keeps it in the tray. Use tray menu → **Quit** to stop.
 ## What it shows
 
 - **CPU**: total + per-core load/frequency, temps, and (with `zenpower`) extra power/voltage/current and per-CCD detail
-- **GPU** (`amdgpu`): usage, temps (edge/junction/memory), clocks, fan, power (PPT), plus read-only tuning state
+- **GPU** (`amdgpu` + NVIDIA): usage, temps, clocks, fan/power where exposed; AMD additionally shows read-only DPM/overdrive state
 - **Mainboard**: fans, temps, voltages (when your Super I/O driver exposes them)
 - **Storage**: NVMe composite temperature per drive
 - **Memory**: RAM + swap usage
-- **Overclock (OC)**: read-only view of CPU frequency limits (cpufreq driver, governor, `amd_pstate`, EPP, boost steps) and AMDGPU DPM/overdrive sysfs
+- **Overclock (OC)**: read-only view of CPU frequency limits (cpufreq driver, governor, `amd_pstate`, EPP, boost steps) and AMDGPU DPM/overdrive sysfs when available
 
 The **Overview** tab gives a single-page glanceable dashboard. If you tune AMDGPU with **[LACT](https://github.com/ilya-zlobintsev/LACT)** (or similar), those settings become visible once the driver exposes them.
 
