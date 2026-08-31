@@ -4,13 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Linux Sensor Tray — history viewer</title>
-  <!--
-    Chart.js + its date adapter and zoom plugin are inlined here when the app deploys this file,
-    so the viewer is one self-contained page: it works on a machine with no network and makes no
-    external requests. Opening this file straight from the repo leaves the marker untouched and
-    the page says so instead of silently drawing nothing.
-  -->
-  <!-- LST_INLINE_CHART_LIBS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
   <style>
     :root {
       --bg: #0b1020;
@@ -684,10 +681,11 @@
       /* ---------------------------------------------------------------------------
        * Chart library availability
        *
-       * The deployed copy of this file has Chart.js, its date adapter, and the zoom
-       * plugin inlined above, so charts work with no network. Probe anyway: the copy
-       * checked into the repo still carries the placeholder, and a confusing
-       * "Chart is not defined" thrown while reading a log is worse than saying so.
+       * Chart.js, its date adapter, and the zoom plugin come from a CDN, so a machine
+       * with no network loads this page without any of them. Probe once and say so
+       * plainly: the old code threw "Chart is not defined" from inside the file reader
+       * and reported it as "Could not read file", which blames the log instead.
+       * Everything that does not need a chart is still rendered.
        * ------------------------------------------------------------------------ */
       var CHART_LIB_OK = (function () {
         if (typeof window.Chart !== 'function') return false
@@ -722,12 +720,10 @@
       })()
 
       var LIB_MISSING_MESSAGE =
-        '<strong>Charts unavailable.</strong> Chart.js is inlined into this page when Linux Sensor Tray ' +
-        'writes it into the log folder, and it is not present here — you are most likely looking at the ' +
-        'template from the source tree rather than the deployed copy. Open ' +
-        '<span class="mono">history-viewer.html</span> from your log folder instead ' +
-        '(<span class="mono">Settings → Disk logging → Open in file manager</span>). Everything that does ' +
-        'not need a chart — the summary table and the full latest-sample record — is still shown below.'
+        '<strong>Charts unavailable — no network.</strong> This page loads Chart.js from a CDN and the ' +
+        'request failed, so the graphs cannot be drawn. Your log is fine and was read in full: the ' +
+        '<strong>summary table</strong> and the <strong>complete latest sample</strong> below come straight ' +
+        'from it. Reopen this page while the machine is online to get the charts back.'
 
       function showNotice(kind, html) {
         var el = document.getElementById('notice')
@@ -873,9 +869,9 @@
         return html
       }
 
-      function tableFromRows(title, columns, rowObjs) {
+      function tableHtml(columns, rowObjs) {
         if (!rowObjs || !rowObjs.length) return ''
-        var html = '<div class="detail-block"><h3>' + escapeHtml(title) + '</h3><table class="data-table"><thead><tr>'
+        var html = '<table class="data-table"><thead><tr>'
         for (var c = 0; c < columns.length; c++) {
           html += '<th>' + escapeHtml(columns[c]) + '</th>'
         }
@@ -887,8 +883,13 @@
           }
           html += '</tr>'
         }
-        html += '</tbody></table></div>'
-        return html
+        return html + '</tbody></table>'
+      }
+
+      function tableFromRows(title, columns, rowObjs) {
+        var table = tableHtml(columns, rowObjs)
+        if (!table) return ''
+        return '<div class="detail-block"><h3>' + escapeHtml(title) + '</h3>' + table + '</div>'
       }
 
       function renderDetailPanel(rows) {
@@ -1227,6 +1228,7 @@
         }
         return {
           type: 'line',
+          options: options,
           data: {
             datasets: spec.datasets.map(function (d) {
               return {
@@ -1318,11 +1320,7 @@
         note.textContent =
           'Computed over all ' + rows.length + ' samples (' + cadence + '), not the downsampled chart points. ' +
           'Metrics the machine never reported are omitted.'
-        body.innerHTML = tableFromRows(
-          'All samples',
-          ['Metric', 'Samples', 'Min', 'Avg', 'Max', 'Last'],
-          out
-        ).replace('<div class="detail-block"><h3>All samples</h3>', '').replace(/<\/div>$/, '')
+        body.innerHTML = tableHtml(['Metric', 'Samples', 'Min', 'Avg', 'Max', 'Last'], out)
         host.classList.add('visible')
       }
 

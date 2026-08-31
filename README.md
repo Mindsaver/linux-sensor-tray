@@ -155,7 +155,9 @@ The **Storage** tab shows **live NVMe temperatures** regardless of logging. Disk
 - **Filename**: `linux-sensor-tray-YYYY-MM-DD.jsonl` (older installs may use `monitor-*.jsonl`)
 - **Default folder**: usually `~/.config/linux-sensor-tray/sensor_logs/` (Electron `userData/sensor_logs`)
 
-On startup, the app writes `history-viewer.html` next to your logs (both the default log directory and your custom directory, if set). Open it in any browser and drag/drop `.jsonl` files to view offline synced charts (zoom + pan supported).
+On startup, the app writes `history-viewer.html` next to your logs (both the default log directory and your custom directory, if set). Open it in any browser and drag/drop `.jsonl` files — several days at once are merged and sorted. Charts are time-synced with zoom and pan; stretches where the machine was off or logging was paused are shaded and left as breaks in each line instead of being interpolated. A min/avg/max summary and the full latest sample are shown as tables.
+
+The charts themselves are drawn by Chart.js, which the page fetches from a CDN, so the graphs need internet the first time you open it. Without a connection the page says so and still shows the summary table and the latest-sample record.
 
 ## Alternative ways to install
 
