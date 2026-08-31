@@ -27,6 +27,7 @@ export function deriveHistoryPoint(s: SensorSnapshot): HistoryPoint {
     gpuMem: s.gpu.tempMemory,
     gpuVddgfx: s.gpu.vddgfx,
     gpuPower: s.gpu.power,
+    gpuVramUsedMiB: s.gpu.vramUsedBytes != null ? s.gpu.vramUsedBytes / (1024 * 1024) : null,
     ramUsedPct
   }
 }

@@ -2,7 +2,7 @@ import type { SensorSnapshot } from './types'
 import { deriveHistoryPoint } from './history'
 
 /** Current on-disk JSONL schema (bump when shape changes). */
-export const DISK_LOG_SCHEMA = 3
+export const DISK_LOG_SCHEMA = 4
 
 /**
  * One JSONL line: chart fields (HistoryPoint) + extended sensor snapshot.
@@ -10,6 +10,7 @@ export const DISK_LOG_SCHEMA = 3
  */
 export function deriveDiskLogRecord(s: SensorSnapshot): Record<string, unknown> {
   const g = s.gpu.tuning
+  const n = s.gpu.nvidiaTuning
   return {
     ...deriveHistoryPoint(s),
     schema: DISK_LOG_SCHEMA,
@@ -45,6 +46,7 @@ export function deriveDiskLogRecord(s: SensorSnapshot): Record<string, unknown> 
       boostFreqsMHz: s.cpu.tuning.boostFreqsMHz
     },
     gpu: {
+      vendor: s.gpu.vendor,
       model: s.gpu.model,
       powerCap: s.gpu.powerCap,
       sclkMHz: s.gpu.sclkMHz,
@@ -52,11 +54,26 @@ export function deriveDiskLogRecord(s: SensorSnapshot): Record<string, unknown> 
       fanRpm: s.gpu.fanRpm,
       fanMax: s.gpu.fanMax,
       fanPwm: s.gpu.fanPwm,
+      vramUsedBytes: s.gpu.vramUsedBytes,
+      vramTotalBytes: s.gpu.vramTotalBytes,
       dpmPerformanceLevel: g.dpmPerformanceLevel,
       dpmState: g.dpmState,
       powerCapDefaultW: g.powerCapDefaultW,
       powerCapMaxW: g.powerCapMaxW,
-      powerCapMinW: g.powerCapMinW
+      powerCapMinW: g.powerCapMinW,
+      nvidia: n && {
+        pstate: n.pstate,
+        memoryUtil: n.memoryUtil,
+        driverVersion: n.driverVersion,
+        persistenceMode: n.persistenceMode,
+        computeMode: n.computeMode,
+        powerCapDefaultW: n.powerCapDefaultW,
+        powerCapMinW: n.powerCapMinW,
+        powerCapMaxW: n.powerCapMaxW,
+        maxSclkMHz: n.maxSclkMHz,
+        maxMclkMHz: n.maxMclkMHz,
+        throttleReasons: n.throttleReasons
+      }
     },
     mainboard: {
       chip: s.mainboard.chip,

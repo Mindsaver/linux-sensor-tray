@@ -42,6 +42,7 @@ The PKGBUILDs in [`aur/`](aur/) are the source of truth and are pushed to AUR by
 
 These are **not required**, but they unlock extra sensors or features on some systems:
 
+- **NVIDIA GPU stats**: the proprietary driver (`nvidia` / `nvidia-dkms`), which ships `nvidia-smi`. Nothing extra is needed — `nvidia-smi` on `PATH` is enough, and no `sudo`. `nouveau` reports nothing.
 - **More AMD CPU sensors**: `zenpower3-dkms` (AUR) — exposes Vcore, V SoC, per-CCD temps, package power, and current. Without it, the app falls back to `k10temp` (Tctl/Tdie only).
 - **Richer System info tab**: `lshw` (`lshw-git`AUR) — used when you click **Enrich with root data** or enable "Always" mode. Shows DIMM banks, DMI caches, NVMe strings, etc.
 - **Root helpers**: `polkit` (`polkit-git`AUR, `polkit-consolekit`AUR) — needed for `pkexec`-based privileged probes (lshw enrichment, zenpower setup via the app's setup tool). Most Arch-based desktops already ship polkit.
@@ -123,13 +124,27 @@ Closing the window keeps it in the tray. Use tray menu → **Quit** to stop.
 ## What it shows
 
 - **CPU**: total + per-core load/frequency, temps, and (with `zenpower`) extra power/voltage/current and per-CCD detail
-- **GPU** (`amdgpu`): usage, temps (edge/junction/memory), clocks, fan, power (PPT), plus read-only tuning state
+- **GPU** — auto-detected, AMD or NVIDIA:
+  - **AMD** (`amdgpu` sysfs): usage, temps (edge/junction/memory), clocks, fan RPM, power (PPT), VRAM, plus read-only DPM/overdrive state
+  - **NVIDIA** (`nvidia-smi`): usage, core temp (and memory temp where the board reports it), clocks, fan duty %, board power, VRAM, P-state, power/clock limits, and active clock limiters
 - **Mainboard**: fans, temps, voltages (when your Super I/O driver exposes them)
 - **Storage**: NVMe composite temperature per drive
 - **Memory**: RAM + swap usage
-- **Overclock (OC)**: read-only view of CPU frequency limits (cpufreq driver, governor, `amd_pstate`, EPP, boost steps) and AMDGPU DPM/overdrive sysfs
+- **Overclock (OC)**: read-only view of CPU frequency limits (cpufreq driver, governor, `amd_pstate`, EPP, boost steps), plus AMDGPU DPM/overdrive sysfs or the NVIDIA power/clock limits from `nvidia-smi`
 
 The **Overview** tab gives a single-page glanceable dashboard. If you tune AMDGPU with **[LACT](https://github.com/ilya-zlobintsev/LACT)** (or similar), those settings become visible once the driver exposes them.
+
+### GPU detection
+
+No configuration — the app picks a GPU at each poll:
+
+1. **NVIDIA**, when `/proc/driver/nvidia/version` exists (proprietary driver loaded) *and* `nvidia-smi` answers on `PATH`.
+2. **AMD**, when an `amdgpu` hwmon node exists.
+3. Otherwise the GPU tab explains that neither backend answered.
+
+NVIDIA wins when both are present, since that combination is nearly always an AMD APU next to an NVIDIA discrete card — the discrete card is the one worth watching. On AMD-only machines the NVIDIA check is a single failed file read, and a failing probe backs off for 60 s, so nothing is spawned in a loop.
+
+Some readings simply do not exist per vendor and show as `—`: `nvidia-smi` reports no core voltage, no hotspot-junction temperature, and fan **duty %** rather than RPM; AMD sysfs has no P-state or clock-limiter list. Intel and `nouveau` are not supported.
 
 ## History viewer and disk logging
 

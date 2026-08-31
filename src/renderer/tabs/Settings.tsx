@@ -197,11 +197,12 @@ export function SettingsTab(): JSX.Element {
         </div>
         <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
           Files: <span className="mono text-slate-400">linux-sensor-tray-YYYY-MM-DD.jsonl</span> — each line is{' '}
-          <span className="mono text-slate-400">schema 3</span>: chart fields (same as before) plus{' '}
+          <span className="mono text-slate-400">schema 4</span>: chart fields (same as before) plus{' '}
           <span className="mono text-slate-400">mem</span>, <span className="mono">cpu</span> (model,
           Tdie/CCDs, SoC power, per-core load/freq), <span className="mono">cpuTuning</span>,{' '}
-          <span className="mono">gpu</span> (clocks,
-          fan, PPT caps, DPM mode — not the huge sysfs text blobs), <span className="mono">mainboard</span>,{' '}
+          <span className="mono">gpu</span> (vendor, clocks,
+          fan, VRAM, PPT caps, DPM mode or the NVIDIA block — not the huge sysfs text blobs),{' '}
+          <span className="mono">mainboard</span>,{' '}
           <span className="mono">storage</span>. Open <span className="mono text-slate-400">history-viewer.html</span>{' '}
           for charts; use <span className="mono text-slate-400">jq</span> / Python for the rest.
         </p>

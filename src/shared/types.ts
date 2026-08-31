@@ -46,14 +46,22 @@ export type CpuTuningSnapshot = {
   boostFreqsMHz: number[]
 }
 
+/** Which driver stack produced the GPU snapshot. `unknown` = no supported GPU found. */
+export type GpuVendor = 'amd' | 'nvidia' | 'unknown'
+
 export type GpuSnapshot = {
+  /** Data source: amdgpu sysfs, `nvidia-smi`, or nothing usable. */
+  vendor: GpuVendor
   model: string
-  /** GPU usage 0-100 (gpu_busy_percent). */
+  /** GPU usage 0-100 (AMD `gpu_busy_percent`, NVIDIA `utilization.gpu`). */
   busy: number | null
+  /** AMD: `edge` (die). NVIDIA: `temperature.gpu` (core). */
   tempEdge: number | null
+  /** AMD `junction` (hotspot). AMD-only — NVIDIA does not expose it. */
   tempJunction: number | null
+  /** AMD `mem`. NVIDIA `temperature.memory` (HBM boards / newer drivers only). */
   tempMemory: number | null
-  /** vddgfx, V */
+  /** vddgfx, V. AMD-only — `nvidia-smi` reports no voltage. */
   vddgfx: number | null
   /** instantaneous package power (W) */
   power: number | null
@@ -63,17 +71,46 @@ export type GpuSnapshot = {
   sclkMHz: number | null
   /** Memory clock, MHz */
   mclkMHz: number | null
-  /** Fan rpm */
+  /** Fan rpm. AMD-only — `nvidia-smi` reports duty %, not RPM. */
   fanRpm: number | null
   /** Fan max rpm */
   fanMax: number | null
-  /** Fan PWM duty 0-100 */
+  /** Fan duty 0-100 (AMD `pwm1` scaled, NVIDIA `fan.speed`). */
   fanPwm: number | null
+  /** VRAM in use, bytes. */
+  vramUsedBytes: number | null
+  /** Total VRAM, bytes. */
+  vramTotalBytes: number | null
   /**
    * DPM / power-profile / OD tables from amdgpu sysfs.
    * “Overclock” in the driver is usually manual DPM + `pp_od_clk_voltage`; values appear when the stack exposes them.
+   * All-null when `vendor !== 'amd'`.
    */
   tuning: GpuTuningSnapshot
+  /** NVIDIA driver state from `nvidia-smi`; null unless `vendor === 'nvidia'`. */
+  nvidiaTuning: NvidiaTuningSnapshot | null
+}
+
+/** NVIDIA tuning / driver state, all from `nvidia-smi --query-gpu`. */
+export type NvidiaTuningSnapshot = {
+  /** Performance state: P0 (max) … P12 (idle). */
+  pstate: string | null
+  /** Memory-controller utilisation %, `utilization.memory` (not VRAM fill). */
+  memoryUtil: number | null
+  /** `driver_version` */
+  driverVersion: string | null
+  /** `persistence_mode`: Enabled / Disabled */
+  persistenceMode: string | null
+  /** `compute_mode`: Default, Exclusive_Process, Prohibited, … */
+  computeMode: string | null
+  powerCapDefaultW: number | null
+  powerCapMinW: number | null
+  powerCapMaxW: number | null
+  /** `clocks.max.graphics` / `clocks.max.memory`, MHz */
+  maxSclkMHz: number | null
+  maxMclkMHz: number | null
+  /** Decoded `clocks_event_reasons.active` bitmask; empty when idle/unsupported. */
+  throttleReasons: string[]
 }
 
 /** GPU tuning / DPM info from sysfs (no root; some files only populate in manual/OC modes). */
@@ -151,6 +188,8 @@ export type HistoryPoint = {
   gpuMem: number | null
   gpuVddgfx: number | null
   gpuPower: number | null
+  /** VRAM in use, MiB (both vendors). */
+  gpuVramUsedMiB: number | null
   ramUsedPct: number
 }
 

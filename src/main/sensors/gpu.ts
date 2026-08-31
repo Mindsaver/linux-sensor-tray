@@ -3,12 +3,14 @@ import { promisify } from 'node:util'
 import { join } from 'node:path'
 import type { GpuSnapshot, GpuTuningSnapshot } from '@shared/types'
 import { findHwmonByName, readLabeledInputs, readNumber, readText } from './hwmon'
+import { emptyGpuSnapshot } from './gpuShared'
+import { readNvidiaSnapshot } from './nvidia'
 
 const exec = promisify(execCb)
 
 let modelCache: string | null = null
 
-async function readGpuModel(): Promise<string> {
+async function readGpuModel(fallback: string): Promise<string> {
   if (modelCache != null) return modelCache
   try {
     const { stdout } = await exec('lspci -mm', { timeout: 1500 })
@@ -28,27 +30,13 @@ async function readGpuModel(): Promise<string> {
   } catch {
     // ignore
   }
-  modelCache = 'AMD GPU'
+  modelCache = fallback
   return modelCache
 }
 
 /** Read gpu_busy_percent from the hwmon's parent device dir. */
 async function readBusyPercent(hwmonDir: string): Promise<number | null> {
   return readNumber(join(hwmonDir, 'device', 'gpu_busy_percent'))
-}
-
-function emptyGpuTuning(): GpuTuningSnapshot {
-  return {
-    dpmPerformanceLevel: null,
-    dpmState: null,
-    powerProfileModeRaw: null,
-    ppDpmSclk: null,
-    ppDpmMclk: null,
-    ppOdClkVoltage: null,
-    powerCapDefaultW: null,
-    powerCapMaxW: null,
-    powerCapMinW: null
-  }
 }
 
 /** DPM / profile / OD tables live under the card device dir; power caps on hwmon. */
@@ -92,30 +80,11 @@ async function readGpuTuning(hwmonDir: string): Promise<GpuTuningSnapshot> {
   }
 }
 
-export async function readGpuSnapshot(): Promise<GpuSnapshot> {
-  const dir = await findHwmonByName('amdgpu')
-  if (!dir) {
-    return {
-      model: await readGpuModel(),
-      busy: null,
-      tempEdge: null,
-      tempJunction: null,
-      tempMemory: null,
-      vddgfx: null,
-      power: null,
-      powerCap: null,
-      sclkMHz: null,
-      mclkMHz: null,
-      fanRpm: null,
-      fanMax: null,
-      fanPwm: null,
-      tuning: emptyGpuTuning()
-    }
-  }
-
-  const [model, busy, temps, ins, freqs, fanRpm, fanMax, pwm1Raw, powAvg, powCap, tuning] =
+async function readAmdGpuSnapshot(dir: string): Promise<GpuSnapshot> {
+  const dev = join(dir, 'device')
+  const [model, busy, temps, ins, freqs, fanRpm, fanMax, pwm1Raw, powAvg, powCap, vramUsed, vramTotal, tuning] =
     await Promise.all([
-      readGpuModel(),
+      readGpuModel('AMD GPU'),
       readBusyPercent(dir),
       readLabeledInputs(dir, 'temp'),
       readLabeledInputs(dir, 'in'),
@@ -125,6 +94,8 @@ export async function readGpuSnapshot(): Promise<GpuSnapshot> {
       readNumber(join(dir, 'pwm1')),
       readNumber(join(dir, 'power1_average')),
       readNumber(join(dir, 'power1_cap')),
+      readNumber(join(dev, 'mem_info_vram_used')),
+      readNumber(join(dev, 'mem_info_vram_total')),
       readGpuTuning(dir)
     ])
 
@@ -141,6 +112,7 @@ export async function readGpuSnapshot(): Promise<GpuSnapshot> {
   const mclk = findByLabel(freqs, 'mclk')
 
   return {
+    vendor: 'amd',
     model,
     busy,
     tempEdge,
@@ -154,6 +126,27 @@ export async function readGpuSnapshot(): Promise<GpuSnapshot> {
     fanRpm,
     fanMax,
     fanPwm: pwm1Raw != null ? (pwm1Raw * 100) / 255 : null,
-    tuning
+    vramUsedBytes: vramUsed,
+    vramTotalBytes: vramTotal,
+    tuning,
+    nvidiaTuning: null
   }
+}
+
+/**
+ * Pick a GPU to report on, without configuration.
+ *
+ * NVIDIA wins when both stacks answer: the only realistic both-present machine is
+ * an AMD APU paired with an NVIDIA discrete card, where the discrete card is the
+ * one worth watching. `readNvidiaSnapshot` returns null (cheaply, and with a
+ * backoff) whenever the NVIDIA driver isn't loaded, so AMD-only boxes are unaffected.
+ */
+export async function readGpuSnapshot(): Promise<GpuSnapshot> {
+  const nvidia = await readNvidiaSnapshot()
+  if (nvidia != null) return nvidia
+
+  const amdDir = await findHwmonByName('amdgpu')
+  if (amdDir != null) return readAmdGpuSnapshot(amdDir)
+
+  return emptyGpuSnapshot('unknown', await readGpuModel('GPU'))
 }

@@ -18,6 +18,8 @@ export function Overview(): JSX.Element {
     )
   }
 
+  const gpuIsNvidia = s.gpu.vendor === 'nvidia'
+
   const cpuLoadSeries: Series[] = [
     {
       key: 'cpuLoad',
@@ -48,19 +50,24 @@ export function Overview(): JSX.Element {
     },
     {
       key: 'gpuEdge',
-      label: 'GPU die edge',
+      label: gpuIsNvidia ? 'GPU core' : 'GPU die edge',
       color: '#22d3ee',
       data: history.map((h) => ({ t: h.t, v: h.gpuEdge }))
     },
-    {
-      key: 'gpuJunction',
-      label: 'GPU junction',
-      color: '#fb923c',
-      data: history.map((h) => ({ t: h.t, v: h.gpuJunction }))
-    },
+    // Hotspot junction is an amdgpu-only sensor.
+    ...(gpuIsNvidia
+      ? []
+      : [
+          {
+            key: 'gpuJunction',
+            label: 'GPU junction',
+            color: '#fb923c',
+            data: history.map((h) => ({ t: h.t, v: h.gpuJunction }))
+          }
+        ]),
     {
       key: 'gpuMem',
-      label: 'GPU VRAM',
+      label: gpuIsNvidia ? 'GPU memory' : 'GPU VRAM',
       color: '#facc15',
       data: history.map((h) => ({ t: h.t, v: h.gpuMem }))
     }
@@ -104,24 +111,52 @@ export function Overview(): JSX.Element {
         </p>
       </Card>
 
-      <Card title={s.gpu.model} subtitle="GPU" className="col-span-12 md:col-span-6 xl:col-span-4">
+      <Card
+        title={s.gpu.model}
+        subtitle={gpuIsNvidia ? 'GPU · nvidia-smi' : 'GPU'}
+        className="col-span-12 md:col-span-6 xl:col-span-4"
+      >
         <div className="flex items-center gap-4">
           <Gauge value={s.gpu.busy ?? 0} max={100} label="Busy" unit="%" integer />
           <div className="grid grid-cols-2 gap-3 flex-1">
-            <Stat label="Edge" value={fmt.temp(s.gpu.tempEdge)} accent={tempAccent(s.gpu.tempEdge)} />
             <Stat
-              label="Junction"
-              value={fmt.temp(s.gpu.tempJunction)}
-              accent={tempAccent(s.gpu.tempJunction, [70, 85, 95])}
+              label={gpuIsNvidia ? 'Core' : 'Edge'}
+              value={fmt.temp(s.gpu.tempEdge)}
+              accent={tempAccent(s.gpu.tempEdge)}
             />
+            {gpuIsNvidia ? (
+              <Stat
+                label="VRAM"
+                value={s.gpu.vramUsedBytes != null ? fmt.bytes(s.gpu.vramUsedBytes) : '—'}
+                hint={s.gpu.vramTotalBytes != null ? `of ${fmt.bytes(s.gpu.vramTotalBytes)}` : undefined}
+              />
+            ) : (
+              <Stat
+                label="Junction"
+                value={fmt.temp(s.gpu.tempJunction)}
+                accent={tempAccent(s.gpu.tempJunction, [70, 85, 95])}
+              />
+            )}
             <Stat label="Mem T°" value={fmt.temp(s.gpu.tempMemory)} accent={tempAccent(s.gpu.tempMemory, [70, 85, 95])} />
-            <Stat label="vddgfx" value={fmt.volt(s.gpu.vddgfx)} />
+            {gpuIsNvidia ? (
+              <Stat label="P-state" value={s.gpu.nvidiaTuning?.pstate ?? '—'} />
+            ) : (
+              <Stat label="vddgfx" value={fmt.volt(s.gpu.vddgfx)} />
+            )}
             <Stat label="Power" value={fmt.watt(s.gpu.power)} hint={s.gpu.powerCap != null ? `cap ${fmt.watt(s.gpu.powerCap, 0)}` : undefined} />
             <Stat label="Clocks" value={`${fmt.mhz(s.gpu.sclkMHz)} / ${fmt.mhz(s.gpu.mclkMHz)}`} size="sm" />
           </div>
         </div>
         <p className="mt-3 text-[10px] text-slate-500 border-t border-slate-800/80 pt-2 leading-relaxed">
-          GPU DPM / OC sysfs: <span className="text-cyan-400/80">Overclock</span> tab
+          {gpuIsNvidia ? (
+            <>
+              GPU clocks / power limits: <span className="text-cyan-400/80">Overclock</span> tab
+            </>
+          ) : (
+            <>
+              GPU DPM / OC sysfs: <span className="text-cyan-400/80">Overclock</span> tab
+            </>
+          )}
         </p>
       </Card>
 
@@ -166,7 +201,7 @@ export function Overview(): JSX.Element {
 
       <Card
         title="Temperature history"
-        subtitle={`Last ${rangeLabel} · CPU Tctl + GPU edge / junction / VRAM`}
+        subtitle={`Last ${rangeLabel} · CPU Tctl + ${gpuIsNvidia ? 'GPU core / memory' : 'GPU edge / junction / VRAM'}`}
         className="col-span-12 xl:col-span-4"
       >
         <Sparkline
@@ -174,7 +209,11 @@ export function Overview(): JSX.Element {
           unit="°C"
           height={200}
           autoY
-          caption="Temperature history — CPU Tctl and all AMDGPU temps: die edge, hotspot junction, and VRAM junction (see legend)."
+          caption={
+            gpuIsNvidia
+              ? 'Temperature history — CPU Tctl plus the NVIDIA core temperature, and memory temperature when the board reports it (see legend).'
+              : 'Temperature history — CPU Tctl and all AMDGPU temps: die edge, hotspot junction, and VRAM junction (see legend).'
+          }
         />
       </Card>
 
@@ -210,11 +249,17 @@ export function Overview(): JSX.Element {
           {s.mainboard.fans.map((f) => (
             <Stat key={f.label} label={f.label} value={fmt.rpm(f.rpm)} size="sm" />
           ))}
-          {s.gpu.fanRpm != null && (
+          {(s.gpu.fanRpm != null || s.gpu.fanPwm != null) && (
             <Stat
               label="GPU fan"
-              value={fmt.rpm(s.gpu.fanRpm)}
-              hint={s.gpu.fanPwm != null ? `${s.gpu.fanPwm.toFixed(0)}% PWM` : undefined}
+              value={s.gpu.fanRpm != null ? fmt.rpm(s.gpu.fanRpm) : fmt.pct(s.gpu.fanPwm)}
+              hint={
+                s.gpu.fanRpm != null && s.gpu.fanPwm != null
+                  ? `${s.gpu.fanPwm.toFixed(0)}% PWM`
+                  : s.gpu.fanRpm == null
+                    ? 'duty (no RPM)'
+                    : undefined
+              }
               size="sm"
             />
           )}
