@@ -4,10 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Linux Sensor Tray — history viewer</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+  <!--
+    Chart.js + its date adapter and zoom plugin are inlined here when the app deploys this file,
+    so the viewer is one self-contained page: it works on a machine with no network and makes no
+    external requests. Opening this file straight from the repo leaves the marker untouched and
+    the page says so instead of silently drawing nothing.
+  -->
+  <!-- LST_INLINE_CHART_LIBS -->
   <style>
     :root {
       --bg: #0b1020;
@@ -221,15 +224,111 @@
       border: 1px solid var(--border);
     }
     .mono { font-family: ui-monospace, monospace; }
+
+    /* ---- notices (offline / info / empty) ---- */
+    .notice {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.82rem;
+      display: none;
+      line-height: 1.55;
+    }
+    .notice.visible { display: block; }
+    .notice.info {
+      background: rgba(34, 211, 238, 0.08);
+      border: 1px solid rgba(34, 211, 238, 0.28);
+      color: #cffafe;
+    }
+    .notice.warn {
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      color: #fde68a;
+    }
+    .notice strong { color: inherit; }
+    .notice .mono { color: inherit; }
+
+    /* ---- empty state inside the drop zone ---- */
+    #drop .empty-state {
+      margin: 1.25rem auto 0;
+      max-width: 46rem;
+      text-align: left;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+    #drop .empty-state h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent2);
+    }
+    #drop .empty-state ol { margin: 0; padding-left: 1.15rem; }
+    #drop .empty-state li { margin-bottom: 0.35rem; }
+    #drop .path {
+      display: block;
+      margin-top: 0.35rem;
+      padding: 0.4rem 0.6rem;
+      border-radius: 0.4rem;
+      background: rgba(2, 6, 23, 0.6);
+      border: 1px solid var(--border);
+      font-family: ui-monospace, monospace;
+      color: var(--text);
+      font-size: 0.75rem;
+      word-break: break-all;
+      user-select: all;
+    }
+    #loaded {
+      margin-top: 0.9rem;
+      display: none;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      justify-content: center;
+      font-size: 0.72rem;
+    }
+    #loaded.visible { display: flex; }
+    #loaded .chip {
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(2, 6, 23, 0.5);
+      color: var(--muted);
+      font-family: ui-monospace, monospace;
+    }
+    #loaded .chip.bad { border-color: rgba(251, 191, 36, 0.35); color: #fde68a; }
+
+    /* ---- per-chart placeholder when a log carries no samples for it ---- */
+    .chart-empty {
+      display: none;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 1rem;
+      border: 1px dashed var(--border);
+      border-radius: 0.5rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+    .chart-empty.visible { display: flex; }
+    .chart-box.empty canvas { display: none; }
+
+    /* ---- summary (min / avg / max) — readable without any chart library ---- */
+    #summary { display: none; }
+    #summary.visible { display: block; }
+    .summary-note { font-size: 0.75rem; color: var(--muted); margin: 0 0 0.75rem; }
   </style>
 </head>
 <body>
   <header>
     <h1>Linux Sensor Tray — history viewer</h1>
     <p>
-      Drag and drop <strong>linux-sensor-tray-*.jsonl</strong> (or legacy <strong>monitor-*.jsonl</strong>) files. Charts support wheel zoom and drag-pan (toolbar syncs all charts).
-      <strong>Schema 2</strong> logs also show extra time series and a <strong>full snapshot</strong> of the latest sample below.
-      Very large logs are <strong>evenly downsampled</strong> for chart drawing only (see meta); the detail panel still reflects the latest full row.
+      Drag and drop <strong>linux-sensor-tray-*.jsonl</strong> (or legacy <strong>monitor-*.jsonl</strong>) files.
+      Everything runs locally in this file — nothing is uploaded.
+      Charts support wheel zoom and drag-pan (the toolbar keeps all charts in sync), and periods where the
+      machine was off or logging was paused are drawn as <strong>gaps</strong> instead of straight lines.
     </p>
   </header>
   <main>
@@ -238,12 +337,34 @@
       <div class="hint">Compact fields power the first charts; extended blocks (<span class="mono">mem</span>, <span class="mono">cpu</span>, …) add more charts and the detail panel.</div>
       <input type="file" id="file" accept=".jsonl,.json,.txt" multiple hidden />
       <button type="button" id="fileBtn">Choose files…</button>
+      <div id="loaded"></div>
+      <div class="empty-state" id="empty-state">
+        <h3>No log open yet</h3>
+        <ol>
+          <li>
+            Logs live next to this file, one per day, named
+            <span class="mono">linux-sensor-tray-YYYY-MM-DD.jsonl</span>:
+            <span class="path" id="log-dir">the folder this history-viewer.html was opened from</span>
+          </li>
+          <li>
+            Folder empty apart from this page? Disk logging is off — turn on
+            <strong>Settings → Disk logging → “Log samples to disk”</strong> in Linux Sensor Tray. The first line
+            is written one write-interval later, so a brand-new log can legitimately hold zero samples.
+          </li>
+          <li>
+            A day with the machine powered off simply has no file; a day it was on and off has one file with
+            gaps. You can drop several days at once — they are merged and sorted by timestamp.
+          </li>
+        </ol>
+      </div>
     </div>
     <div id="err"></div>
+    <div id="notice" class="notice"></div>
     <div id="meta">
       <div class="row">
         <div>Samples: <span class="val" id="m-count">—</span></div>
         <div>Span: <span class="val" id="m-span">—</span></div>
+        <div>Coverage: <span class="val" id="m-coverage">—</span></div>
         <div>Schema: <span class="val" id="m-schema">—</span></div>
         <div>From: <span class="val" id="m-from">—</span></div>
         <div>To: <span class="val" id="m-to">—</span></div>
@@ -261,30 +382,36 @@
 
     <h2 class="page-section-title">Core metrics (all logs)</h2>
     <div class="chart-wrap" id="c1w" style="display:none">
-      <h2>Load & memory %</h2>
-      <div class="chart-box"><canvas id="c1"></canvas></div>
+      <h2>Load &amp; memory %</h2>
+      <div class="chart-box" id="c1b"><canvas id="c1"></canvas><div class="chart-empty" id="c1e"></div></div>
     </div>
     <div class="chart-wrap" id="c2w" style="display:none">
       <h2>Temperatures</h2>
-      <div class="chart-box"><canvas id="c2"></canvas></div>
+      <div class="chart-box" id="c2b"><canvas id="c2"></canvas><div class="chart-empty" id="c2e"></div></div>
     </div>
     <div class="chart-wrap" id="c3w" style="display:none">
-      <h2>Power & voltage</h2>
-      <div class="chart-box"><canvas id="c3"></canvas></div>
+      <h2>Power &amp; voltage</h2>
+      <div class="chart-box" id="c3b"><canvas id="c3"></canvas><div class="chart-empty" id="c3e"></div></div>
     </div>
 
     <h2 class="page-section-title" id="ext-charts-title" style="display:none">Extended time series (schema 2+)</h2>
     <div class="chart-wrap" id="c4w" style="display:none">
-      <h2>RAM & swap (GB)</h2>
-      <div class="chart-box"><canvas id="c4"></canvas></div>
+      <h2>RAM &amp; swap (GB)</h2>
+      <div class="chart-box" id="c4b"><canvas id="c4"></canvas><div class="chart-empty" id="c4e"></div></div>
     </div>
     <div class="chart-wrap" id="c5w" style="display:none">
       <h2>CPU Tctl / Tdie &amp; SoC power</h2>
-      <div class="chart-box"><canvas id="c5"></canvas></div>
+      <div class="chart-box" id="c5b"><canvas id="c5"></canvas><div class="chart-empty" id="c5e"></div></div>
     </div>
     <div class="chart-wrap" id="c6w" style="display:none">
       <h2>GPU clocks &amp; fan</h2>
-      <div class="chart-box"><canvas id="c6"></canvas></div>
+      <div class="chart-box" id="c6b"><canvas id="c6"></canvas><div class="chart-empty" id="c6e"></div></div>
+    </div>
+
+    <div id="summary">
+      <h2 class="page-section-title">Summary — min / avg / max</h2>
+      <p class="summary-note" id="summary-note"></p>
+      <div class="detail-block" id="summary-body"></div>
     </div>
 
     <div id="detail-panel">
@@ -548,6 +675,138 @@
         el.textContent = ''
       }
 
+      /**
+       * Absolute path of the folder this viewer was written into; the main process replaces the
+       * placeholder with a JSON string when it deploys the file. Left as-is when opened from the repo.
+       */
+      var LOG_DIR = "__LST_LOG_DIR__"
+
+      /* ---------------------------------------------------------------------------
+       * Chart library availability
+       *
+       * The deployed copy of this file has Chart.js, its date adapter, and the zoom
+       * plugin inlined above, so charts work with no network. Probe anyway: the copy
+       * checked into the repo still carries the placeholder, and a confusing
+       * "Chart is not defined" thrown while reading a log is worse than saying so.
+       * ------------------------------------------------------------------------ */
+      var CHART_LIB_OK = (function () {
+        if (typeof window.Chart !== 'function') return false
+        try {
+          var probe = document.createElement('canvas')
+          probe.width = 8
+          probe.height = 8
+          var c = new window.Chart(probe, {
+            type: 'line',
+            data: { datasets: [{ data: [{ x: Date.now(), y: 1 }] }] },
+            options: {
+              responsive: false,
+              animation: false,
+              plugins: { legend: { display: false } },
+              scales: { x: { type: 'time' } }
+            }
+          })
+          c.destroy()
+          return true
+        } catch (e) {
+          return false
+        }
+      })()
+
+      var ZOOM_OK = (function () {
+        if (!CHART_LIB_OK) return false
+        try {
+          return !!window.Chart.registry.plugins.get('zoom')
+        } catch (e) {
+          return false
+        }
+      })()
+
+      var LIB_MISSING_MESSAGE =
+        '<strong>Charts unavailable.</strong> Chart.js is inlined into this page when Linux Sensor Tray ' +
+        'writes it into the log folder, and it is not present here — you are most likely looking at the ' +
+        'template from the source tree rather than the deployed copy. Open ' +
+        '<span class="mono">history-viewer.html</span> from your log folder instead ' +
+        '(<span class="mono">Settings → Disk logging → Open in file manager</span>). Everything that does ' +
+        'not need a chart — the summary table and the full latest-sample record — is still shown below.'
+
+      function showNotice(kind, html) {
+        var el = document.getElementById('notice')
+        el.className = 'notice visible ' + kind
+        el.innerHTML = html
+      }
+
+      function hideNotice() {
+        var el = document.getElementById('notice')
+        el.className = 'notice'
+        el.innerHTML = ''
+      }
+
+      /* ---------------------------------------------------------------------------
+       * Gaps — stretches with no samples because the machine was off, suspended, or
+       * disk logging was paused. Without this the line chart draws a straight segment
+       * across hours of downtime, which reads as "flat load" instead of "no data".
+       * ------------------------------------------------------------------------ */
+
+      /** A delta counts as a gap once it exceeds both 4x the usual cadence and one minute. */
+      function gapThresholdFor(stepMs) {
+        return Math.max(stepMs * 4, 60 * 1000)
+      }
+
+      function computeGaps(rows) {
+        var empty = { gaps: [], stepMs: null, threshold: null, missingMs: 0 }
+        if (rows.length < 3) return empty
+        var deltas = []
+        for (var i = 1; i < rows.length; i++) {
+          var d = rows[i].t - rows[i - 1].t
+          if (d > 0) deltas.push(d)
+        }
+        if (!deltas.length) return empty
+        deltas.sort(function (a, b) { return a - b })
+        var step = deltas[Math.floor(deltas.length / 2)]
+        if (!Number.isFinite(step) || step <= 0) return empty
+        var threshold = gapThresholdFor(step)
+        var gaps = []
+        var missing = 0
+        for (var j = 1; j < rows.length; j++) {
+          var delta = rows[j].t - rows[j - 1].t
+          if (delta > threshold) {
+            gaps.push({ from: rows[j - 1].t, to: rows[j].t })
+            missing += delta - step
+          }
+        }
+        return { gaps: gaps, stepMs: step, threshold: threshold, missingMs: missing }
+      }
+
+      /** Insert a null sample after every gap so the line breaks instead of interpolating. */
+      function breakGaps(points, threshold) {
+        if (!threshold || points.length < 2) return points
+        var out = [points[0]]
+        for (var i = 1; i < points.length; i++) {
+          if (points[i].x - points[i - 1].x > threshold) {
+            out.push({ x: points[i - 1].x + 1, y: null })
+          }
+          out.push(points[i])
+        }
+        return out
+      }
+
+      function fmtDuration(ms) {
+        if (!Number.isFinite(ms) || ms <= 0) return '0 min'
+        var min = ms / 60000
+        if (min < 1) return Math.round(ms / 1000) + ' s'
+        if (min < 120) return min.toFixed(1) + ' min'
+        var h = min / 60
+        if (h < 48) return h.toFixed(2) + ' h'
+        return (h / 24).toFixed(1) + ' d'
+      }
+
+      function fmtInterval(ms) {
+        if (!Number.isFinite(ms) || ms <= 0) return '—'
+        if (ms < 1000) return Math.round(ms) + ' ms'
+        if (ms < 90 * 1000) return (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'
+        return (ms / 60000).toFixed(1) + ' min'
+      }
+
       function toXY(rows, key) {
         if (!rows.length) return []
         return rows
@@ -586,6 +845,12 @@
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
+      }
+
+      function fmtBytes(b) {
+        if (b == null || !Number.isFinite(b)) return '—'
+        if (b >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GiB'
+        return (b / (1024 * 1024)).toFixed(0) + ' MiB'
       }
 
       function fmtKB(kb) {
@@ -651,6 +916,7 @@
               ['gpuMem °C', last.gpuMem != null ? String(last.gpuMem) : '—'],
               ['gpuVddgfx V', last.gpuVddgfx != null ? String(last.gpuVddgfx) : '—'],
               ['gpuPower W', last.gpuPower != null ? String(last.gpuPower) : '—'],
+              ['gpuVramUsedMiB', last.gpuVramUsedMiB != null ? String(last.gpuVramUsedMiB) : '—'],
               ['ramUsedPct', last.ramUsedPct != null ? String(last.ramUsedPct) : '—']
             ])
           return
@@ -761,6 +1027,7 @@
           var g = last.gpu
           parts.push(
             kvBlock('GPU', [
+              ['vendor', g.vendor || '—'],
               ['model', g.model || '—'],
               ['power cap W', g.powerCap != null ? String(g.powerCap) : '—'],
               ['sclk MHz', g.sclkMHz != null ? String(g.sclkMHz) : '—'],
@@ -772,9 +1039,30 @@
               ['DPM state', g.dpmState || '—'],
               ['PPT default W', g.powerCapDefaultW != null ? String(g.powerCapDefaultW) : '—'],
               ['PPT max W', g.powerCapMaxW != null ? String(g.powerCapMaxW) : '—'],
-              ['PPT min W', g.powerCapMinW != null ? String(g.powerCapMinW) : '—']
+              ['PPT min W', g.powerCapMinW != null ? String(g.powerCapMinW) : '—'],
+              ['VRAM used', g.vramUsedBytes != null ? fmtBytes(g.vramUsedBytes) : '—'],
+              ['VRAM total', g.vramTotalBytes != null ? fmtBytes(g.vramTotalBytes) : '—']
             ])
           )
+          if (g.nvidia) {
+            var nv = g.nvidia
+            parts.push(
+              kvBlock('GPU · NVIDIA', [
+                ['P-state', nv.pstate || '—'],
+                ['driver', nv.driverVersion || '—'],
+                ['persistence', nv.persistenceMode || '—'],
+                ['compute mode', nv.computeMode || '—'],
+                ['mem bus util %', nv.memoryUtil != null ? String(nv.memoryUtil) : '—'],
+                ['limit default W', nv.powerCapDefaultW != null ? String(nv.powerCapDefaultW) : '—'],
+                ['limit min W', nv.powerCapMinW != null ? String(nv.powerCapMinW) : '—'],
+                ['limit max W', nv.powerCapMaxW != null ? String(nv.powerCapMaxW) : '—'],
+                ['max sclk MHz', nv.maxSclkMHz != null ? String(nv.maxSclkMHz) : '—'],
+                ['max mclk MHz', nv.maxMclkMHz != null ? String(nv.maxMclkMHz) : '—'],
+                ['clock limiters',
+                  nv.throttleReasons && nv.throttleReasons.length ? nv.throttleReasons.join(', ') : 'none']
+              ])
+            )
+          }
         }
 
         if (last.mainboard) {
@@ -844,292 +1132,410 @@
         chartList.push(ch)
       }
 
-      function render(rows) {
-        hideErr()
-        destroyCharts()
-
-        var extTitle = document.getElementById('ext-charts-title')
-        var c4w = document.getElementById('c4w')
-        var c5w = document.getElementById('c5w')
-        var c6w = document.getElementById('c6w')
-        c4w.style.display = 'none'
-        c5w.style.display = 'none'
-        c6w.style.display = 'none'
-        extTitle.style.display = 'none'
-
-        var chartRows = rows
-        if (rows.length > MAX_CHART_SAMPLES) {
-          chartRows = downsampleRows(rows, MAX_CHART_SAMPLES)
+      /** Grey band over every stretch with no samples (machine off / logging paused). */
+      function gapBandsPlugin(gaps) {
+        return {
+          id: 'lstGapBands',
+          beforeDatasetsDraw: function (chart) {
+            if (!gaps.length) return
+            var sx = chart.scales.x
+            var area = chart.chartArea
+            if (!sx || !area) return
+            var ctx = chart.ctx
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top)
+            ctx.clip()
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.12)'
+            for (var i = 0; i < gaps.length; i++) {
+              var a = sx.getPixelForValue(gaps[i].from)
+              var b = sx.getPixelForValue(gaps[i].to)
+              if (!Number.isFinite(a) || !Number.isFinite(b)) continue
+              var l = Math.max(area.left, Math.min(a, b))
+              var r = Math.min(area.right, Math.max(a, b))
+              if (r <= l) continue
+              ctx.fillRect(l, area.top, r - l, area.bottom - area.top)
+            }
+            ctx.restore()
+          }
         }
+      }
 
-        if (!rows.length) {
-          showErr('No valid rows found (expected JSON lines with a numeric "t" field).')
+      /**
+       * Render one chart from a renderer-agnostic spec, so the "nothing was logged for these
+       * sensors" placeholder is decided in one place instead of per chart.
+       */
+      function renderChart(n, spec) {
+        var wrap = document.getElementById('c' + n + 'w')
+        var box = document.getElementById('c' + n + 'b')
+        var canvas = document.getElementById('c' + n)
+        var empty = document.getElementById('c' + n + 'e')
+
+        wrap.style.display = 'block'
+
+        var present = spec.datasets.filter(function (d) {
+          return d.data.some(function (pt) { return pt.y != null && Number.isFinite(pt.y) })
+        })
+        if (!present.length || !CHART_LIB_OK) {
+          box.classList.add('empty')
+          empty.classList.add('visible')
+          empty.textContent = CHART_LIB_OK
+            ? (spec.emptyText || 'No samples for these sensors in this log — the hardware did not expose them, or the driver was missing while logging.')
+            : 'Chart library missing — see the note above.'
+          return
+        }
+        box.classList.remove('empty')
+        empty.classList.remove('visible')
+        spec.datasets = present
+        pushChart(new Chart(canvas, chartConfigFrom(spec)))
+      }
+
+      function chartConfigFrom(spec) {
+        var dark = '#64748b'
+        var scales = {
+          x: chartDefaults.scales.x,
+          y: {
+            type: 'linear',
+            position: 'left',
+            min: spec.yMin,
+            max: spec.yMax,
+            title: { display: !!spec.leftTitle, text: spec.leftTitle || '', color: dark, font: { size: 11 } },
+            grid: { color: 'rgba(51, 65, 85, 0.35)' },
+            ticks: { color: dark }
+          }
+        }
+        var usesRight = spec.datasets.some(function (d) { return d.axis === 'y1' })
+        if (spec.rightTitle && usesRight) {
+          scales.y1 = {
+            type: 'linear',
+            position: 'right',
+            title: { display: true, text: spec.rightTitle, color: dark, font: { size: 11 } },
+            grid: { drawOnChartArea: false },
+            ticks: { color: dark }
+          }
+        }
+        var options = {
+          ...chartDefaults,
+          plugins: { ...chartDefaults.plugins },
+          scales: scales
+        }
+        if (!scales.y1) {
+          options.layout = { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } }
+        }
+        if (ZOOM_OK) {
+          options.plugins.zoom = zoomPluginConfig(spec.tMin, spec.tMax)
+        }
+        return {
+          type: 'line',
+          data: {
+            datasets: spec.datasets.map(function (d) {
+              return {
+                label: d.label,
+                data: d.data,
+                borderColor: d.color,
+                backgroundColor: 'transparent',
+                fill: false,
+                tension: 0.15,
+                pointRadius: spec.showPoints ? 2 : 0,
+                borderWidth: 1.5,
+                spanGaps: false,
+                yAxisID: scales.y1 && d.axis === 'y1' ? 'y1' : 'y'
+              }
+            })
+          },
+          plugins: (spec.gaps && spec.gaps.length) ? [gapBandsPlugin(spec.gaps)] : []
+        }
+      }
+
+      function setChartVisibility(visible) {
+        ;['c1w', 'c2w', 'c3w', 'c4w', 'c5w', 'c6w'].forEach(function (id) {
+          document.getElementById(id).style.display = 'none'
+        })
+        document.getElementById('ext-charts-title').style.display = 'none'
+        if (!visible) {
           document.getElementById('meta').classList.remove('visible')
           document.getElementById('chart-toolbar').classList.remove('visible')
-          ;['c1w', 'c2w', 'c3w'].forEach(function (id) {
-            document.getElementById(id).style.display = 'none'
-          })
           document.getElementById('detail-panel').classList.remove('visible')
+          document.getElementById('summary').classList.remove('visible')
+        }
+      }
+
+      /** min / avg / max per metric — the part of the report that never needs a chart library. */
+      function renderSummary(rows, gapInfo) {
+        var host = document.getElementById('summary')
+        var body = document.getElementById('summary-body')
+        var note = document.getElementById('summary-note')
+
+        var metrics = [
+          ['CPU load', '%', function (r) { return r.cpuLoad }],
+          ['CPU Tctl', '°C', function (r) { return r.cpuTctl }],
+          ['CPU avg clock', 'MHz', function (r) { return r.cpuAvgMHz }],
+          ['CPU package', 'W', function (r) { return r.cpuPCore }],
+          ['Vcore', 'V', function (r) { return r.cpuVcore }],
+          ['GPU busy', '%', function (r) { return r.gpuBusy }],
+          ['GPU edge', '°C', function (r) { return r.gpuEdge }],
+          ['GPU junction', '°C', function (r) { return r.gpuJunction }],
+          ['GPU memory', '°C', function (r) { return r.gpuMem }],
+          ['GPU power', 'W', function (r) { return r.gpuPower }],
+          ['GPU VRAM used', 'MiB', function (r) { return r.gpuVramUsedMiB }],
+          ['RAM used', '%', function (r) { return r.ramUsedPct }]
+        ]
+
+        var out = []
+        metrics.forEach(function (m) {
+          var lo = Infinity
+          var hi = -Infinity
+          var sum = 0
+          var n = 0
+          var last = null
+          for (var i = 0; i < rows.length; i++) {
+            var v = m[2](rows[i])
+            if (v == null || !Number.isFinite(v)) continue
+            if (v < lo) lo = v
+            if (v > hi) hi = v
+            sum += v
+            n++
+            last = v
+          }
+          if (!n) return
+          var dec = m[1] === 'V' ? 3 : m[1] === 'MHz' ? 0 : 1
+          out.push([
+            m[0] + ' (' + m[1] + ')',
+            String(n),
+            lo.toFixed(dec),
+            (sum / n).toFixed(dec),
+            hi.toFixed(dec),
+            last != null ? last.toFixed(dec) : '—'
+          ])
+        })
+
+        if (!out.length) {
+          host.classList.remove('visible')
           return
         }
 
+        var cadence = gapInfo.stepMs != null ? 'about one sample every ' + fmtInterval(gapInfo.stepMs) : 'cadence unknown'
+        note.textContent =
+          'Computed over all ' + rows.length + ' samples (' + cadence + '), not the downsampled chart points. ' +
+          'Metrics the machine never reported are omitted.'
+        body.innerHTML = tableFromRows(
+          'All samples',
+          ['Metric', 'Samples', 'Min', 'Avg', 'Max', 'Last'],
+          out
+        ).replace('<div class="detail-block"><h3>All samples</h3>', '').replace(/<\/div>$/, '')
+        host.classList.add('visible')
+      }
+
+      function render(rows, fileInfo) {
+        hideErr()
+        hideNotice()
+        destroyCharts()
+        setChartVisibility(true)
+
+        if (!rows.length) {
+          setChartVisibility(false)
+          document.getElementById('empty-state').style.display = ''
+          var n = fileInfo && fileInfo.count ? fileInfo.count : 0
+          showErr(
+            n
+              ? 'Read ' + n + ' file' + (n === 1 ? '' : 's') + ' but found 0 samples — every line was empty or not valid JSON with a numeric "t".'
+              : 'No samples found.'
+          )
+          showNotice(
+            'warn',
+            '<strong>Nothing to chart.</strong> A log file with no samples normally means one of: ' +
+              'disk logging was switched on but the app has not reached its first write interval yet; ' +
+              'the app was closed before a sample was due; or the file belongs to a day the machine was off. ' +
+              'Check <span class="mono">Settings → Disk logging</span> in Linux Sensor Tray, then reopen the newest ' +
+              '<span class="mono">linux-sensor-tray-*.jsonl</span>.'
+          )
+          return
+        }
+
+        document.getElementById('empty-state').style.display = 'none'
+
+        var chartRows = rows.length > MAX_CHART_SAMPLES ? downsampleRows(rows, MAX_CHART_SAMPLES) : rows
+
         var t0 = rows[0].t
         var t1 = rows[rows.length - 1].t
-        var spanMin = (t1 - t0) / 60000
+        var spanMs = t1 - t0
         var ext = hasSchema2(rows)
+        var gapInfo = computeGaps(rows)
+        var threshold = gapInfo.threshold
+        var covered = spanMs > 0 ? Math.max(0, Math.min(1, 1 - gapInfo.missingMs / spanMs)) : 1
 
         document.getElementById('m-count').textContent = String(rows.length)
-        document.getElementById('m-span').textContent =
-          spanMin < 120 ? spanMin.toFixed(1) + ' min' : (spanMin / 60).toFixed(2) + ' h'
+        document.getElementById('m-span').textContent = fmtDuration(spanMs)
+        document.getElementById('m-coverage').textContent = gapInfo.gaps.length
+          ? (covered * 100).toFixed(1) + '% · ' + gapInfo.gaps.length + ' gap' +
+            (gapInfo.gaps.length === 1 ? '' : 's') + ' (' + fmtDuration(gapInfo.missingMs) + ' without data)'
+          : spanMs > 0 ? '100% (continuous)' : '—'
         document.getElementById('m-schema').textContent = ext ? '2+ (extended)' : '1 (compact)'
         document.getElementById('m-from').textContent = new Date(t0).toLocaleString()
         document.getElementById('m-to').textContent = new Date(t1).toLocaleString()
-        var ptsEl = document.getElementById('m-chartpts')
-        if (rows.length > MAX_CHART_SAMPLES) {
-          ptsEl.textContent =
-            String(chartRows.length) + ' drawn (evenly spaced from ' + String(rows.length) + ')'
-        } else {
-          ptsEl.textContent = String(rows.length) + ' (all)'
-        }
+        document.getElementById('m-chartpts').textContent =
+          rows.length > MAX_CHART_SAMPLES
+            ? String(chartRows.length) + ' drawn (evenly spaced from ' + String(rows.length) + ')'
+            : String(rows.length) + ' (all)'
         document.getElementById('meta').classList.add('visible')
-        document.getElementById('chart-toolbar').classList.add('visible')
+        document.getElementById('chart-toolbar').classList.toggle('visible', CHART_LIB_OK && ZOOM_OK)
 
-        var dark = { grid: chartDefaults.scales.x.grid.color, text: '#64748b' }
-
-        var ds = function (label, data, color, yAxisID) {
-          return {
-            label: label,
-            data: data,
-            borderColor: color,
-            backgroundColor: 'transparent',
-            fill: false,
-            tension: 0.15,
-            pointRadius: 0,
-            borderWidth: 1.5,
-            yAxisID: yAxisID || 'y'
-          }
+        var notices = []
+        if (!CHART_LIB_OK) {
+          notices.push(LIB_MISSING_MESSAGE)
+        } else if (!ZOOM_OK) {
+          notices.push('<strong>Zoom plugin unavailable</strong> — charts render, but wheel zoom and drag-pan are disabled.')
+        }
+        if (rows.length === 1) {
+          notices.push(
+            '<strong>Single sample.</strong> This log holds exactly one row, so there is no line to draw — ' +
+              'see the complete record below. Lower the write interval or leave the app running longer for a trend.'
+          )
+        }
+        if (gapInfo.gaps.length) {
+          var biggest = gapInfo.gaps.reduce(function (a, b) {
+            return b.to - b.from > a.to - a.from ? b : a
+          })
+          notices.push(
+            '<strong>' + gapInfo.gaps.length + ' gap' + (gapInfo.gaps.length === 1 ? '' : 's') + ' in this log</strong> — ' +
+              fmtDuration(gapInfo.missingMs) + ' with no samples, shaded grey on every chart and left as a break in ' +
+              'each line rather than being interpolated. Longest: ' + fmtDuration(biggest.to - biggest.from) + ' from ' +
+              new Date(biggest.from).toLocaleString() + '. Expected when the machine was off or suspended, or while ' +
+              'disk logging was disabled.'
+          )
+        }
+        if (notices.length) {
+          showNotice(CHART_LIB_OK ? 'info' : 'warn', notices.join('<br /><br />'))
         }
 
-        var zoomOpts = { zoom: zoomPluginConfig(t0, t1) }
+        var showPoints = chartRows.length <= 60
+        var series = function (label, color, data, axis) {
+          return { label: label, color: color, data: breakGaps(data, threshold), axis: axis || 'y' }
+        }
+        var base = function (extra) {
+          var spec = {
+            tMin: t0,
+            tMax: t1,
+            gaps: gapInfo.gaps,
+            showPoints: showPoints
+          }
+          for (var k in extra) spec[k] = extra[k]
+          return spec
+        }
 
-        document.getElementById('c1w').style.display = 'block'
-        pushChart(
-          new Chart(document.getElementById('c1'), {
-            type: 'line',
-            data: {
-              datasets: [
-                ds('CPU load %', toXY(chartRows, 'cpuLoad'), 'rgb(34, 211, 238)'),
-                ds('GPU busy %', toXY(chartRows, 'gpuBusy'), 'rgb(167, 139, 250)'),
-                ds('RAM used %', toXY(chartRows, 'ramUsedPct'), 'rgb(52, 211, 153)')
-              ]
-            },
-            options: {
-              ...chartDefaults,
-              layout: { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } },
-              plugins: { ...chartDefaults.plugins, ...zoomOpts },
-              scales: {
-                ...chartDefaults.scales,
-                y: {
-                  ...chartDefaults.scales.y,
-                  min: 0,
-                  max: 100,
-                  title: { display: true, text: '%', color: dark.text, font: { size: 11 } }
-                }
-              }
-            }
-          })
-        )
+        renderChart(1, base({
+          leftTitle: '%',
+          yMin: 0,
+          yMax: 100,
+          datasets: [
+            series('CPU load %', 'rgb(34, 211, 238)', toXY(chartRows, 'cpuLoad')),
+            series('GPU busy %', 'rgb(167, 139, 250)', toXY(chartRows, 'gpuBusy')),
+            series('RAM used %', 'rgb(52, 211, 153)', toXY(chartRows, 'ramUsedPct'))
+          ],
+          emptyText: 'No load or memory percentages in this log.'
+        }))
 
-        document.getElementById('c2w').style.display = 'block'
-        pushChart(
-          new Chart(document.getElementById('c2'), {
-            type: 'line',
-            data: {
-              datasets: [
-                ds('CPU Tctl °C', toXY(chartRows, 'cpuTctl'), 'rgb(248, 113, 113)'),
-                ds('GPU junction °C', toXY(chartRows, 'gpuJunction'), 'rgb(251, 146, 60)'),
-                ds('GPU edge °C', toXY(chartRows, 'gpuEdge'), 'rgb(34, 211, 238)'),
-                ds('GPU mem °C', toXY(chartRows, 'gpuMem'), 'rgb(250, 204, 21)')
-              ]
-            },
-            options: {
-              ...chartDefaults,
-              layout: { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } },
-              plugins: { ...chartDefaults.plugins, ...zoomOpts },
-              scales: {
-                ...chartDefaults.scales,
-                y: {
-                  ...chartDefaults.scales.y,
-                  title: { display: true, text: '°C', color: dark.text, font: { size: 11 } }
-                }
-              }
-            }
-          })
-        )
+        renderChart(2, base({
+          leftTitle: '°C',
+          datasets: [
+            series('CPU Tctl °C', 'rgb(248, 113, 113)', toXY(chartRows, 'cpuTctl')),
+            series('GPU junction °C', 'rgb(251, 146, 60)', toXY(chartRows, 'gpuJunction')),
+            series('GPU edge °C', 'rgb(34, 211, 238)', toXY(chartRows, 'gpuEdge')),
+            series('GPU mem °C', 'rgb(250, 204, 21)', toXY(chartRows, 'gpuMem'))
+          ],
+          emptyText: 'No temperatures were logged — check that the hwmon drivers for your CPU/GPU were loaded.'
+        }))
 
-        document.getElementById('c3w').style.display = 'block'
-        pushChart(
-          new Chart(document.getElementById('c3'), {
-            type: 'line',
-            data: {
-              datasets: [
-                ds('CPU package W', toXY(chartRows, 'cpuPCore'), 'rgb(34, 211, 238)', 'y'),
-                ds('GPU power W', toXY(chartRows, 'gpuPower'), 'rgb(167, 139, 250)', 'y'),
-                ds('Vcore V', toXY(chartRows, 'cpuVcore'), 'rgb(52, 211, 153)', 'y1'),
-                ds('vddgfx V', toXY(chartRows, 'gpuVddgfx'), 'rgb(250, 204, 21)', 'y1')
-              ]
-            },
-            options: {
-              ...chartDefaults,
-              plugins: { ...chartDefaults.plugins, ...zoomOpts },
-              scales: {
-                x: chartDefaults.scales.x,
-                y: {
-                  type: 'linear',
-                  position: 'left',
-                  title: { display: true, text: 'Watts', color: dark.text, font: { size: 11 } },
-                  grid: { color: 'rgba(51, 65, 85, 0.35)' },
-                  ticks: { color: dark.text }
-                },
-                y1: {
-                  type: 'linear',
-                  position: 'right',
-                  title: { display: true, text: 'Volts', color: dark.text, font: { size: 11 } },
-                  grid: { drawOnChartArea: false },
-                  ticks: { color: dark.text }
-                }
-              }
-            }
-          })
-        )
+        renderChart(3, base({
+          leftTitle: 'Watts',
+          rightTitle: 'Volts',
+          datasets: [
+            series('CPU package W', 'rgb(34, 211, 238)', toXY(chartRows, 'cpuPCore'), 'y'),
+            series('GPU power W', 'rgb(167, 139, 250)', toXY(chartRows, 'gpuPower'), 'y'),
+            series('Vcore V', 'rgb(52, 211, 153)', toXY(chartRows, 'cpuVcore'), 'y1'),
+            series('vddgfx V', 'rgb(250, 204, 21)', toXY(chartRows, 'gpuVddgfx'), 'y1')
+          ],
+          emptyText: 'No power or voltage readings — on AMD CPUs these need zenpower3-dkms; k10temp alone reports temperatures only.'
+        }))
 
         if (ext) {
-          extTitle.style.display = 'block'
-          var ramUsed = toXYPath(chartRows, function (r) {
-            return r.mem && r.mem.usedKB != null ? r.mem.usedKB / (1024 * 1024) : null
-          })
-          var swapUsed = toXYPath(chartRows, function (r) {
-            return r.mem && r.mem.swapUsedKB != null ? r.mem.swapUsedKB / (1024 * 1024) : null
-          })
-          if (ramUsed.length || swapUsed.length) {
-            c4w.style.display = 'block'
-            pushChart(
-              new Chart(document.getElementById('c4'), {
-                type: 'line',
-                data: {
-                  datasets: [
-                    ds('RAM used GB', ramUsed, 'rgb(52, 211, 153)'),
-                    ds('Swap used GB', swapUsed, 'rgb(251, 146, 60)')
-                  ]
-                },
-                options: {
-                  ...chartDefaults,
-                  layout: { padding: { right: RIGHT_Y_AXIS_RESERVE_PX } },
-                  plugins: { ...chartDefaults.plugins, ...zoomOpts },
-                  scales: {
-                    ...chartDefaults.scales,
-                    y: {
-                      ...chartDefaults.scales.y,
-                      title: { display: true, text: 'GB', color: dark.text, font: { size: 11 } }
-                    }
-                  }
-                }
-              })
-            )
-          }
+          document.getElementById('ext-charts-title').style.display = 'block'
 
-          var tdie = toXYPath(chartRows, function (r) {
-            return r.cpu && r.cpu.tempTdie != null ? r.cpu.tempTdie : null
-          })
-          var tctlLine = toXY(chartRows, 'cpuTctl')
-          var pSoC = toXYPath(chartRows, function (r) {
-            return r.cpu && r.cpu.pSoC != null ? r.cpu.pSoC : null
-          })
-          if (tdie.length || tctlLine.length || pSoC.length) {
-            c5w.style.display = 'block'
-            pushChart(
-              new Chart(document.getElementById('c5'), {
-                type: 'line',
-                data: {
-                  datasets: [
-                    ds('CPU Tctl °C', tctlLine, 'rgb(248, 113, 113)', 'y'),
-                    ds('CPU Tdie °C', tdie, 'rgb(251, 113, 133)', 'y'),
-                    ds('SoC power W', pSoC, 'rgb(167, 139, 250)', 'y1')
-                  ]
-                },
-                options: {
-                  ...chartDefaults,
-                  plugins: { ...chartDefaults.plugins, ...zoomOpts },
-                  scales: {
-                    x: chartDefaults.scales.x,
-                    y: {
-                      type: 'linear',
-                      position: 'left',
-                      title: { display: true, text: '°C', color: dark.text, font: { size: 11 } },
-                      grid: { color: 'rgba(51, 65, 85, 0.35)' },
-                      ticks: { color: dark.text }
-                    },
-                    y1: {
-                      type: 'linear',
-                      position: 'right',
-                      title: { display: true, text: 'W', color: dark.text, font: { size: 11 } },
-                      grid: { drawOnChartArea: false },
-                      ticks: { color: dark.text }
-                    }
-                  }
-                }
-              })
-            )
-          }
+          renderChart(4, base({
+            leftTitle: 'GB',
+            datasets: [
+              series('RAM used GB', 'rgb(52, 211, 153)', toXYPath(chartRows, function (r) {
+                return r.mem && r.mem.usedKB != null ? r.mem.usedKB / (1024 * 1024) : null
+              })),
+              series('Swap used GB', 'rgb(251, 146, 60)', toXYPath(chartRows, function (r) {
+                return r.mem && r.mem.swapUsedKB != null ? r.mem.swapUsedKB / (1024 * 1024) : null
+              }))
+            ],
+            emptyText: 'No memory block in these rows.'
+          }))
 
-          var sclk = toXYPath(chartRows, function (r) {
-            return r.gpu && r.gpu.sclkMHz != null ? r.gpu.sclkMHz : null
-          })
-          var mclk = toXYPath(chartRows, function (r) {
-            return r.gpu && r.gpu.mclkMHz != null ? r.gpu.mclkMHz : null
-          })
-          var fan = toXYPath(chartRows, function (r) {
+          renderChart(5, base({
+            leftTitle: '°C',
+            rightTitle: 'W',
+            datasets: [
+              series('CPU Tctl °C', 'rgb(248, 113, 113)', toXY(chartRows, 'cpuTctl'), 'y'),
+              series('CPU Tdie °C', 'rgb(251, 113, 133)', toXYPath(chartRows, function (r) {
+                return r.cpu && r.cpu.tempTdie != null ? r.cpu.tempTdie : null
+              }), 'y'),
+              series('SoC power W', 'rgb(167, 139, 250)', toXYPath(chartRows, function (r) {
+                return r.cpu && r.cpu.pSoC != null ? r.cpu.pSoC : null
+              }), 'y1')
+            ],
+            emptyText: 'No Tctl/Tdie or SoC power in this log.'
+          }))
+
+          // nvidia-smi reports fan duty, not RPM — fall back to it and relabel the right axis.
+          var gpuFan = toXYPath(chartRows, function (r) {
             return r.gpu && r.gpu.fanRpm != null ? r.gpu.fanRpm : null
           })
-          if (sclk.length || mclk.length || fan.length) {
-            c6w.style.display = 'block'
-            pushChart(
-              new Chart(document.getElementById('c6'), {
-                type: 'line',
-                data: {
-                  datasets: [
-                    ds('sclk MHz', sclk, 'rgb(34, 211, 238)', 'y'),
-                    ds('mclk MHz', mclk, 'rgb(52, 211, 153)', 'y'),
-                    ds('fan RPM', fan, 'rgb(250, 204, 21)', 'y1')
-                  ]
-                },
-                options: {
-                  ...chartDefaults,
-                  plugins: { ...chartDefaults.plugins, ...zoomOpts },
-                  scales: {
-                    x: chartDefaults.scales.x,
-                    y: {
-                      type: 'linear',
-                      position: 'left',
-                      title: { display: true, text: 'MHz', color: dark.text, font: { size: 11 } },
-                      grid: { color: 'rgba(51, 65, 85, 0.35)' },
-                      ticks: { color: dark.text }
-                    },
-                    y1: {
-                      type: 'linear',
-                      position: 'right',
-                      title: { display: true, text: 'RPM', color: dark.text, font: { size: 11 } },
-                      grid: { drawOnChartArea: false },
-                      ticks: { color: dark.text }
-                    }
-                  }
-                }
-              })
-            )
+          var gpuFanIsPct = false
+          if (!gpuFan.length) {
+            gpuFan = toXYPath(chartRows, function (r) {
+              return r.gpu && r.gpu.fanPwm != null ? r.gpu.fanPwm : null
+            })
+            gpuFanIsPct = gpuFan.length > 0
           }
+
+          renderChart(6, base({
+            leftTitle: 'MHz',
+            rightTitle: gpuFanIsPct ? '%' : 'RPM',
+            datasets: [
+              series('sclk MHz', 'rgb(34, 211, 238)', toXYPath(chartRows, function (r) {
+                return r.gpu && r.gpu.sclkMHz != null ? r.gpu.sclkMHz : null
+              }), 'y'),
+              series('mclk MHz', 'rgb(52, 211, 153)', toXYPath(chartRows, function (r) {
+                return r.gpu && r.gpu.mclkMHz != null ? r.gpu.mclkMHz : null
+              }), 'y'),
+              series(gpuFanIsPct ? 'fan %' : 'fan RPM', 'rgb(250, 204, 21)', gpuFan, 'y1')
+            ],
+            emptyText: 'No GPU clocks or fan speed — needs an amdgpu or NVIDIA GPU in the log.'
+          }))
         }
 
+        renderSummary(rows, gapInfo)
         renderDetailPanel(rows)
+      }
+
+      function setLoadedChips(entries) {
+        var host = document.getElementById('loaded')
+        if (!entries.length) {
+          host.className = ''
+          host.innerHTML = ''
+          return
+        }
+        host.className = 'visible'
+        host.innerHTML = entries
+          .map(function (e) {
+            var cls = e.rows ? 'chip' : 'chip bad'
+            var count = e.rows ? e.rows + ' samples' : 'no samples'
+            return '<span class="' + cls + '">' + escapeHtml(e.name) + ' · ' + count + '</span>'
+          })
+          .join('')
       }
 
       function loadFiles(files) {
@@ -1137,7 +1543,7 @@
           return /\.(jsonl|json|txt)$/i.test(f.name)
         })
         if (!list.length) {
-          showErr('No .jsonl (or .json/.txt) files in selection.')
+          showErr('No .jsonl (or .json/.txt) files in selection. History logs are named linux-sensor-tray-YYYY-MM-DD.jsonl.')
           return
         }
         Promise.all(
@@ -1147,11 +1553,15 @@
         )
           .then(function (texts) {
             var all = []
+            var entries = []
             for (var i = 0; i < texts.length; i++) {
-              all = all.concat(parseJsonl(texts[i]))
+              var parsed = parseJsonl(texts[i])
+              entries.push({ name: list[i].name, rows: parsed.length })
+              all = all.concat(parsed)
             }
             all.sort(function (a, b) { return a.t - b.t })
-            render(all)
+            setLoadedChips(entries)
+            render(all, { count: list.length })
           })
           .catch(function (e) {
             showErr('Could not read file: ' + (e.message || String(e)))
@@ -1195,6 +1605,14 @@
         zoomTimeAxis(ZOOM_OUT_FACTOR)
       })
       document.getElementById('zoom-reset').addEventListener('click', resetAllZoom)
+
+      if (LOG_DIR && LOG_DIR.indexOf('__LST_') !== 0) {
+        document.getElementById('log-dir').textContent = LOG_DIR
+      }
+
+      if (!CHART_LIB_OK) {
+        showNotice('warn', LIB_MISSING_MESSAGE)
+      }
     })()
   </script>
 </body>
